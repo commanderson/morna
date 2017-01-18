@@ -3,18 +3,51 @@
 import re
 import argparse
 import random
+from math import log
 #import linecache
 
-def tf_idf_score(term, document, corpus):
-    """ Produces a tf-idf score for the given term in the document
-        given the corpus
-        term: in this case, an exon-exon junction
-        document: a sample with coverage information for each junction
-        corpus: all the samples taken together as a collection of coverages
-        Return value: float
+
+
+
+def norm_log(input):
+    """ Returns natural log of input unless input is 0;
+        then returns 0.0
+        input: integer or float input
+        Return value: a float
     """
-    return (term_frequency(term, document) 
-    * inverse_document_frequency(term, corpus))
+    if (input == 0):
+        return 0.0
+    else:
+        return log(float(input))
+    
+    
+def tf_idf_score(frequency_matrix):
+    """ Produces a sample-by-junction tf-idf matrix,
+        given a sample-by-junction raw frequency matrix
+        frequency_matrix: a matrix where each row represents a unique exon-exon
+        junction, and each column corresponds to a different sample; cells 
+        contain raw coverage number of reads spanning that junction 
+        in the corresponding sample
+        Return value: a matrix of the same dimensions contining tf-idf scores
+        calculated using junctions as terms and samples as documents.
+    """
+    #As of now, the term frequency measure is 1+log(junction coverage),
+    #and the inverse document frequency is:
+    # log(1+(number of samples/number of samples where junction is present)
+    num_samples = float(len(frequency_matrix[0]))
+    junction_present_counts = [0 for x in range(len(frequency_matrix)+1)]
+    for i,row in enumerate(frequency_matrix):
+        samples_with_junction = len([x for x in row if x > 0])
+#        print samples_with_junction
+#        print row
+        for j,frequency in enumerate(row):
+            frequency_matrix[i][j] = ((1.0 + norm_log(frequency_matrix[i][j])) *
+                            norm_log(1.0 + (num_samples/samples_with_junction)))
+            
+            
+            
+    return frequency_matrix
+#    (term_frequency(term, document) * inverse_document_frequency(term, corpus))
     
 def match(lst, value):
     """ Produces the index in a UNIQUE list whose contents matches a value
@@ -23,7 +56,7 @@ def match(lst, value):
         Return value: list of ints, error string if not found or multiple found
     """
     matches = [i for i, x in enumerate(lst) if x==value]
-    if (len(matches) == 0):
+    if (len(matches) < 1):
         return "Err: " + str(value) + " not found in " + str(lst)
     elif (len(matches) > 1):
         return ("Err: " + str(value) + " occurs " + str(len(matches)) 
@@ -109,3 +142,5 @@ with open(junctions_file) as file_handle:
 #            tf_idf_matrix[i,j] = tf_idf_score(junctions[i], samples[j], 
 #                                            sum_of_frequencies)
 print tf_idf_matrix
+
+print tf_idf_score(tf_idf_matrix)
