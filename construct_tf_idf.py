@@ -97,8 +97,12 @@ junctions_file = args.f
 #Next we need a list of all the samples; we'll go by indices now
 #and look up in the idmap file later.
 
-#We must calculate the number of samples to do IDF calculations
+#We must determine the number of samples to do IDF calculations
 all_samples = []
+
+#########################
+#pass1: count of samples#
+#########################
 
 with open(junctions_file) as junc_file_handle:
     for i, line in enumerate(junc_file_handle):
@@ -114,25 +118,6 @@ with open(junctions_file) as junc_file_handle:
 
 unique_samples = uniquify(all_samples)
 num_samples = len(unique_samples)
-
-##################################
-#pass1: create intropolis of IDFs#
-##################################
-
-idf_file = junctions_file + ".idf"
-
-with open(junctions_file) as junc_file_handle, \
-     open(idf_file, 'w') as idf_file_handle:
-    for i, line in enumerate(junc_file_handle):
-        if (i % 100 == 0):
-            print( str(i) + " lines into 1st pass (idf) writing")
-        line_pieces = line.split()
-        samples_with_junction = (line_pieces[6].split(','))
-        num_samples_with_junction = len(samples_with_junction)
-        new_line_pieces = line_pieces[:6]
-        idf = norm_log(1.0 + (num_samples/num_samples_with_junction))
-        new_line_pieces.append(str(idf)+"\n")
-        idf_file_handle.write("\t".join(new_line_pieces))
             
 ###########################################
 #pass2: create intropolis of tf-idf scores#
@@ -141,78 +126,32 @@ with open(junctions_file) as junc_file_handle, \
 tf_idf_file = junctions_file + ".tf_idf"
 
 with open(junctions_file) as junc_file_handle, \
-     open(idf_file) as idf_file_handle, \
      open(tf_idf_file, 'w') as tf_idf_file_handle:
-    i=0;    #since izip is already playing with iterators I'll track iterations
-    for introp_line, idf_line in izip(junc_file_handle,
-                                                idf_file_handle):
+    for i, introp_line in enumerate(junc_file_handle):
         if (i % 100 == 0):
             print( str(i) + " lines into 2nd pass (tf-idf) writing")
         introp_line_pieces = introp_line.split()
-        idf_line_pieces = introp_line.split()
         new_line_pieces = introp_line_pieces[:6]
-        idf_value = float(idf_line_pieces[6])
+        
         #This time we will write the non tf-idf score line pieces first
         tf_idf_file_handle.write("\t".join(new_line_pieces))
-        
-        samples_with_junction = (introp_line_pieces[6].split(','))
-        samples_with_junction = [int(num) for num in samples_with_junction]
         
         samples_junction_coverages = (introp_line_pieces[7].split(','))
         samples_junction_coverages = [int(num) for num in
                                      samples_junction_coverages]
+                                     
+        num_samples_with_junction = len(samples_junction_coverages)
+        idf_value = norm_log(1.0 + (num_samples/num_samples_with_junction))
+        
         for j, coverage in enumerate(samples_junction_coverages):
-            tf_idf_score = (1+ norm_log(coverage) 
-                            * idf_value)
-            tf_idf_file_handle.write("\t" + tf_idf_score)
+            tf_idf_score = (1+ norm_log(coverage) * idf_value)
+            tf_idf_file_handle.write("\t" + str(tf_idf_score))
         
         tf_idf_file_handle.write("\n")
-        i+=1    #keep this at the end of the loop to track iteration!
- 
-quit()
-#Next, we'll write a file to hold Inverse Document Frequency info
-#Keeping the matrix at minimal size is tricky. 
-#Because all sample indices might not be present in a continuous range, we treat
-#them more like ids to be looked up later. The rows of the matrix correspond 1:1 
-#with the lines (each representing a junction) in the input file, and there is 
-#one column for each unique sample index, but there is no guarantee that e.g. 
-#sample index 12 corresponds to column 12 of the matrix; instead, the columns 
-#correspond to the matching sample index from the set of all indices sorted in 
-#increasing order - column 0 being the lowest sample index, column 9 the 
-#10th-lowest, and so on.
-
-tf_idf_matrix = ([[0 for x in range(len(all_samples)+1)] 
-                for x in range(i+1)])
-
-#print tf_idf_matrix
-
-print( "tf_idf matrix is "+str(len(tf_idf_matrix))+" rows by "
-        + str(len(tf_idf_matrix[0]))+" columns")
         
-with open(junctions_file) as file_handle:
-    for i, line in enumerate(file_handle):
-        line_pieces = line.split()
-        samples_with_junction = (line_pieces[6].split(','))
-        samples_with_junction = [int(num) for num in samples_with_junction]
-        samples_junction_coverages = (line_pieces[7].split(','))
-        samples_junction_coverages = [int(num) for num in
-                                     samples_junction_coverages]
-        print("junction "+ str(i) + " in " + str(len(samples_with_junction)) 
-                + "samples.")
-        for j, sample in enumerate(samples_with_junction):
-#            print ("junction "+str(i) + " in sample" 
-#                    + str(samples_with_junction[j]))
-            sample_index = match(all_samples, sample)
-#            print("store that in column " + str(sample_index))
-            tf_idf_matrix[i][sample_index] = samples_junction_coverages[j]
-#            tf_idf_matrix[i,j] = tf_idf_score(junctions[i], samples[j], 
-#                                            sum_of_frequencies)
-#print tf_idf_matrix
+unique_samples = sorted(unique_samples)
+chosen_sample_ids = random.sample(unique_samples,10)
 
-tf_idf_matrix = tf_idf_score(tf_idf_matrix)
-#for row in tf_idf_matrix:
-#    print row
-
-outfile = workfile+".deduped"
-fho=open(outfile, "w")
-fho.write(orig_header)
+with open(junctions_file) as junc_file_handle, \
+     open(tf_idf_file) as tf_idf_file_handle:
+    for introp_line, score_line in izip(junc_file_handle, tf_idf_file_handle):
