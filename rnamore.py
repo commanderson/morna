@@ -9,6 +9,7 @@ obtaining nearest neighbors.
 Requires mmh3 (pip install mmh3) and Spotify's annoy (pip install annoy)
 """
 import argparse
+import mmh3
 from annoy import AnnoyIndex
 
 if __name__ == '__main__':
@@ -38,5 +39,23 @@ if __name__ == '__main__':
     args = parser.parse_args()
     if args.intropolis:
         # Index
+        
+        with open(agrs.intropolis) as introp_file_handle:
+        for i, introp_line in enumerate(junc_file_handle):
+            if (i % 100 == 0):
+                print( str(i) + " lines into 2nd pass (tf-idf) writing")
+            introp_line_pieces = introp_line.split()
+            new_line_pieces = introp_line_pieces[:6]
+        
+            #This time we will write the non tf-idf score line pieces first
+            tf_idf_file_handle.write("\t".join(new_line_pieces))
+        
+            samples_junction_coverages = (introp_line_pieces[7].split(','))
+            samples_junction_coverages = [int(num) for num in
+                                     samples_junction_coverages]
+                                     
+            num_samples_with_junction = len(samples_junction_coverages)
+            idf_value = norm_log(1.0 + (num_samples/num_samples_with_junction))
+        
     else:
         # Search
