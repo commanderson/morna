@@ -9,6 +9,7 @@ obtaining nearest neighbors.
 Requires mmh3 (pip install mmh3) and Spotify's annoy (pip install annoy)
 """
 import argparse
+import gzip
 import mmh3
 import sys
 from annoy import AnnoyIndex
@@ -311,7 +312,7 @@ if __name__ == '__main__':
         # Index
         sample_feature_matrix = defaultdict(
                                 lambda: [0 for _ in xrange(args.features)])
-        with open(args.intropolis) as introp_file_handle:
+        with gzip.open(args.intropolis) as introp_file_handle:
             for i, introp_line in enumerate(introp_file_handle):
                 introp_line_pieces = introp_line.split()
                 #right now we hash on 'chromosome start stop'
