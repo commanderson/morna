@@ -217,6 +217,7 @@ if __name__ == '__main__':
             help='larger = more accurage search'
         )
     args = parser.parse_args()
+
     if args.intropolis:
         # Index
         sample_feature_matrix = defaultdict(
@@ -243,7 +244,7 @@ if __name__ == '__main__':
         for sample_index in sample_feature_matrix:
             t.add_item(sample_feature_matrix[sample_index])
 
-        t.build(args.n-trees) # 10 trees
-        t.save(agrs.annoy-idx)
+        t.build(args.n_trees) # number of trees specified in args
+        t.save(agrs.annoy_idx)
     else:
         # Search
