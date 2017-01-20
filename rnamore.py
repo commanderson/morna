@@ -219,7 +219,8 @@ if __name__ == '__main__':
     args = parser.parse_args()
     if args.intropolis:
         # Index
-        sample_feature_matrix = defaultdict(lambda: [0 for _ in xrange(args.features)])
+        sample_feature_matrix = defaultdict(
+                                lambda: [0 for _ in xrange(args.features)])
         with open(args.intropolis) as introp_file_handle:
             for i, introp_line in enumerate(introp_file_handle):
                 introp_line_pieces = introp_line.split()
@@ -237,13 +238,12 @@ if __name__ == '__main__':
                     sample_feature_matrix[
                     int(sample_index)][
                     hashed_value] += int(coverage)
-        f = 40
-        t = AnnoyIndex(f)  # Length of item vector that will be indexed
-        for i in xrange(1000):
-            v = [random.gauss(0, 1) for z in xrange(f)]
-            t.add_item(i, v)
 
-        t.build(10) # 10 trees
-        t.save('test.ann')
+        t = AnnoyIndex(args.features)  
+        for sample_index in sample_feature_matrix:
+            t.add_item(sample_feature_matrix[sample_index])
+
+        t.build(args.n-trees) # 10 trees
+        t.save(agrs.annoy-idx)
     else:
         # Search
