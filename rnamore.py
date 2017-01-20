@@ -36,3 +36,7 @@ if __name__ == '__main__':
             help='larger = more accurage search'
         )
     args = parser.parse_args()
+    if args.intropolis:
+        # Index
+    else:
+        # Search
