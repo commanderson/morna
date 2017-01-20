@@ -12,6 +12,7 @@ import argparse
 import mmh3
 import sys
 from annoy import AnnoyIndex
+from collections import defaultdict
 
 def parsed_md(md):
     """ Divides an MD string up by boundaries between ^, letters, and numbers
@@ -307,24 +308,32 @@ if __name__ == '__main__':
     args = parser.parse_args()
     if args.intropolis:
         # Index
-        
-        with open(agrs.intropolis) as introp_file_handle:
-        for i, introp_line in enumerate(junc_file_handle):
-            if (i % 100 == 0):
-                print( str(i) + " lines into 2nd pass (tf-idf) writing")
-            introp_line_pieces = introp_line.split()
-            new_line_pieces = introp_line_pieces[:6]
-        
-            #This time we will write the non tf-idf score line pieces first
-            tf_idf_file_handle.write("\t".join(new_line_pieces))
-        
-            samples_junction_coverages = (introp_line_pieces[7].split(','))
-            samples_junction_coverages = [int(num) for num in
-                                     samples_junction_coverages]
-                                     
-            num_samples_with_junction = len(samples_junction_coverages)
-            idf_value = norm_log(1.0 + (num_samples/num_samples_with_junction))
-        
+        sample_feature_matrix = defaultdict(
+                                lambda: [0 for _ in xrange(args.features)])
+        with open(args.intropolis) as introp_file_handle:
+            for i, introp_line in enumerate(introp_file_handle):
+                introp_line_pieces = introp_line.split()
+                #right now we hash on 'chromosome start stop'
+                #maybe strand someday but shouldn't matter
+                hashable_junction = " ".join(introp_line_pieces[:3])
+                hashed_value = mmh3.hash(hashable_junction)
+                multiplier = (-1 if hashed_value < 0 else 1)
+                hashed_value = hashed_value % args.features
+            
+                for sample_index, coverage in zip(
+                                    introp_line_pieces[6].split(','),
+                                    introp_line_pieces[7].split(',')
+                                ):
+                    sample_feature_matrix[
+                    int(sample_index)][
+                    hashed_value] += int(coverage)
+
+        t = AnnoyIndex(args.features)  
+        for sample_index in sample_feature_matrix:
+            t.add_item(sample_feature_matrix[sample_index])
+
+        t.build(args.n-trees) # 10 trees
+        t.save(agrs.annoy-idx)
     else:
         # Search
         # Read BED or BAM
