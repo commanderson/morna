@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-rnamore
+morna
 
 Uses mmh3 to implement feature hashing for dimensionality reduction of 
 intropolis junction vectors by sample and uses Spotify's annoy library for
