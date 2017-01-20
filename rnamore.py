@@ -328,12 +328,12 @@ if __name__ == '__main__':
                     int(sample_index)][
                     hashed_value] += int(coverage)
 
-        t = AnnoyIndex(args.features)  
+        annoy_index = AnnoyIndex(args.features)  
         for sample_index in sample_feature_matrix:
-            t.add_item(sample_feature_matrix[sample_index])
+            annoy_index.add_item(sample_feature_matrix[sample_index])
 
-        t.build(args.n-trees) # 10 trees
-        t.save(agrs.annoy-idx)
+        annoy_index.build(args.n_trees) # 10 trees
+        annoy_index.save(args.annoy_idx)
     else:
         # Search
         # Read BED or BAM
