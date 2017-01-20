@@ -3,10 +3,25 @@
 import re
 import argparse
 import random
+import sqlite3
 from math import log
 from itertools import izip
 #import linecache
 
+def magic_sql_write(cursor, sample_id, tf_idf_score):
+    """ Wrapper function for writing to our temp sql db
+            Note: the sample id should have a table already!
+        cursor: cursor object for writing to the db
+        sample_id: the sample id we are writing for
+        tf_idf_score: the score we are recording. Note: 0.0 is empty
+        Return value: null
+    """
+    #since everything's been converted to numeric types we're assuming
+    #no problems with injection;
+    #also, standard float precision warnings apply.
+    cursor.execute("INSERT INTO sample_%d VALUES (%f)"
+                    % (sample_id,tf_idf_score))
+    
 def uniquify(seq):
     """Returns a version of list seq with duplicate elements reduced to unique
         seq: a list
@@ -143,15 +158,62 @@ with open(junctions_file) as junc_file_handle, \
         num_samples_with_junction = len(samples_junction_coverages)
         idf_value = norm_log(1.0 + (num_samples/num_samples_with_junction))
         
+        first_one = True    #must format commas appropriately!
         for j, coverage in enumerate(samples_junction_coverages):
             tf_idf_score = (1+ norm_log(coverage) * idf_value)
-            tf_idf_file_handle.write("\t" + str(tf_idf_score))
-        
+            if (first_one):   
+                tf_idf_file_handle.write("\t" + str(tf_idf_score))
+                first_one = False
+            else:
+                tf_idf_file_handle.write("," + str(tf_idf_score))
         tf_idf_file_handle.write("\n")
         
 unique_samples = sorted(unique_samples)
-chosen_sample_ids = random.sample(unique_samples,10)
+chosen_sample_ids = random.sample(unique_samples,3)
+print("randomly chosen sample ids are: " + str(chosen_sample_ids))
+
+# Each chosen sample id will get its own table in a sqlite db
+#We will treat these like lists onto which we can 
+#add a tf-idf score for each junction.
+
+
+##TODO: Make the db files temporary files
+conn = sqlite3.connect('tf_idf_temp.db')
+cursor = conn.cursor()
+
+for sample_id in chosen_sample_ids:
+    #I don't think we worry about injection, but if we do I'm
+    #currently assuming our int conversion prevents it 
+    cursor.execute("CREATE TABLE sample_%d (tf_ifd float)" 
+                    % sample_id)
 
 with open(junctions_file) as junc_file_handle, \
      open(tf_idf_file) as tf_idf_file_handle:
+    i = 0;
     for introp_line, score_line in izip(junc_file_handle, tf_idf_file_handle):
+        if (i % 100 == 0):
+            print( str(i) + " lines into 3rd pass (inversion into sql")
+        samples_with_junction = ((introp_line.split())[6]).split(',')
+        samples_with_junction = [int(num) for num in samples_with_junction]
+        
+        tf_idfs_of_samples = ((score_line.split())[6]).split(',')
+        tf_idfs_of_samples = [float(num) for num in tf_idfs_of_samples]
+        
+        print("lengths: samples: " + str(len(samples_with_junction)) 
+                + " tf-idfs: " + str(len(tf_idfs_of_samples)))
+                
+        #TODO: Make the following structure write something to ALL tables once per junction, a tf-idf value when appropriate and a 0 otherwise
+        
+        for j, sample_id in enumerate(samples_with_junction):
+            if sample_id in chosen_sample_ids:
+                print("SPECIAL")
+                magic_sql_write(cursor, sample_id, tf_idfs_of_samples[j])
+            else:
+                print("DEFAULT")
+                magic_sql_write(cursor, sample_id, 0.0)
+        i+=1
+        
+for sample_id in chosen_sample_ids:
+    print("Contents of sample " + str(sample_id))
+    for row in c.execute("SELECT * FROM sample_%d" %sample_id):
+        print row
