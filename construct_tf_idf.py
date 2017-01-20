@@ -1,9 +1,10 @@
 #!/usr/bin/env python
 
-import re
+#import re
 import argparse
 import random
 import sqlite3
+import tempfile
 from math import log
 from itertools import izip
 #import linecache
@@ -192,28 +193,28 @@ with open(junctions_file) as junc_file_handle, \
     i = 0;
     for introp_line, score_line in izip(junc_file_handle, tf_idf_file_handle):
         if (i % 100 == 0):
-            print( str(i) + " lines into 3rd pass (inversion into sql")
+            print( str(i) + " lines into 3rd pass (inversion into sql)")
         samples_with_junction = ((introp_line.split())[6]).split(',')
         samples_with_junction = [int(num) for num in samples_with_junction]
         
         tf_idfs_of_samples = ((score_line.split())[6]).split(',')
         tf_idfs_of_samples = [float(num) for num in tf_idfs_of_samples]
         
-        print("lengths: samples: " + str(len(samples_with_junction)) 
-                + " tf-idfs: " + str(len(tf_idfs_of_samples)))
                 
-        #TODO: Make the following structure write something to ALL tables once per junction, a tf-idf value when appropriate and a 0 otherwise
         
-        for j, sample_id in enumerate(samples_with_junction):
-            if sample_id in chosen_sample_ids:
-                print("SPECIAL")
+        for j, sample_id in enumerate(chosen_sample_ids):
+            if sample_id in samples_with_junction:
+                #print("SPECIAL")
                 magic_sql_write(cursor, sample_id, tf_idfs_of_samples[j])
             else:
-                print("DEFAULT")
+                #print("DEFAULT")
                 magic_sql_write(cursor, sample_id, 0.0)
         i+=1
         
 for sample_id in chosen_sample_ids:
     print("Contents of sample " + str(sample_id))
-    for row in c.execute("SELECT * FROM sample_%d" %sample_id):
+    for row in cursor.execute("SELECT * FROM sample_%d" %sample_id):
         print row
+        
+for sample_id in chosen_sample_ids:
+    cursor.execute("DROP TABLE sample_%d" %sample_id)
