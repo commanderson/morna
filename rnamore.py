@@ -10,6 +10,7 @@ Requires mmh3 (pip install mmh3) and Spotify's annoy (pip install annoy)
 """
 import argparse
 import mmh3
+import sys
 from annoy import AnnoyIndex
 from collections import defaultdict
 
@@ -52,8 +53,8 @@ def indels_junctions_exons_mismatches(
                                  string of inserted bases). Deletions
             is a list of tuples (first genomic position of deletion,
                                  string of deleted bases). Junctions is a list
-            of tuples (intron start position (inclusive),
-                       intron end position (exclusive),
+            of tuples (junction start position (inclusive),
+                       junction end position (exclusive),
                        left_diplacement, right_displacement). Exons is a list
             of tuples (exon start position (inclusive),
                        exon end position (exclusive)). Mismatches is a list
@@ -192,6 +193,89 @@ def dummy_md_index(cigar):
                     )
     return ''.join(str(el) for el in md)
 
+def junctions_from_bed_stream(bed_stream):
+    """ Generates junctions from BED stream
+
+        bed_stream: input stream containing lines of a BED file characterizing
+            splice junctions
+
+        Yield value: tuple (chrom, start position, end position, coverage)
+            representing a junction. Start position is 1-based and inclusive;
+            end position is 1-based and inclusive. 
+    """
+    for line in bed_stream:
+        tokens = line.rstrip().split('\t')
+        if len(tokens) < 12:
+            continue
+        chrom = tokens[0]
+        chrom_start = int(tokens[1])
+        chrom_end = int(tokens[2])
+        coverage = int(tokens[4])
+        block_sizes = tokens[10].split(',')
+        block_starts = tokens[11].split(',')
+        # Handle trailing commas
+        try:
+            int(block_sizes[-1])
+        except ValueError:
+            block_sizes = block_sizes[:-1]
+        try:
+            int(block_starts[-1])
+        except ValueError:
+            block_starts = block_starts[:-1]
+        block_count = len(block_sizes)
+        if block_count < 2:
+            # No junctions
+            continue
+        assert block_count == len(block_starts)
+        junctions = []
+        # First block characterizes junction on left side of junction
+        junctions.append(chrom_start + int(block_starts[0]) 
+                                + int(block_sizes[0]))
+        for i in xrange(1, block_count - 1):
+            # Any intervening blocks characterize two junctions
+            junction_start = chrom_start + int(block_starts[i])
+            junctions.append(junction_start)
+            junctions.append(junction_start + int(block_sizes[i]))
+        # Final block characterizes junction on right side of junction
+        junctions.append(chrom_start + int(block_starts[-1]))
+        for i in xrange(len(junctions)/2):
+            yield (chrom, junctions[2*i]+1, junctions[2*i+1]+1, coverage)
+
+def junctions_from_sam_stream(sam_stream):
+    """ Generates junctions from BED stream
+
+        bed_stream: input stream containing lines of a BED file characterizing
+            splice junctions
+
+        Yield value: tuple (chrom, start position, end position, 1)
+            representing a junction. Start position is 1-based and inclusive;
+            end position is 1-based and inclusive.
+    """
+    for line in sam_stream:
+        if line[0] == '@': continue
+        try:
+            tokens = line.strip().split('\t')
+            flag = int(tokens[1])
+            if flag & 4:
+                continue
+            name = tokens[0]
+            rname = tokens[2]
+            cigar = tokens[5]
+            pos = int(tokens[3])
+            seq = tokens[9]
+            flag = int(tokens[1])
+            if 'N' not in cigar or flag & 256:
+                continue
+            #md = [token[5:] for token in tokens if token[:5] == 'MD:Z:'][0]
+            _, _, junctions_to_add, _ = indels_junctions_and_exons(
+                        cigar, dummy_md_index(cigar), pos, seq
+                    )
+            for junction in junctions_to_add:
+                yield (rname,) + junction + (1,)
+        except IndexError:
+            print >>sys.stderr, ('Error found on line: ' + line)
+            raise
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__, 
                 formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -215,6 +299,11 @@ if __name__ == '__main__':
     parser.add_argument('--search-k', type=int, required=False,
             default=None,
             help='larger = more accurage search'
+        )
+    parser.add_argument('--bed', action='store_const', const=True,
+            default=False,
+            help=('invoked if format of query sample\'s junctions is TopHat-'
+                  'style BED; otherwise, the input is assumed to be BAM')
         )
     args = parser.parse_args()
 
@@ -240,11 +329,33 @@ if __name__ == '__main__':
                     int(sample_index)][
                     hashed_value] += int(coverage)
 
-        t = AnnoyIndex(args.features)  
+        annoy_index = AnnoyIndex(args.features)  
         for sample_index in sample_feature_matrix:
-            t.add_item(sample_feature_matrix[sample_index])
+            annoy_index.add_item(sample_feature_matrix[sample_index])
 
-        t.build(args.n_trees) # number of trees specified in args
-        t.save(agrs.annoy_idx)
+        annoy_index.build(args.n_trees) # n trees specified by args
+        annoy_index.save(args.annoy_idx)
     else:
         # Search
+        # Read BED or BAM
+        if args.bed:
+            junction_generator = junctions_from_sam_stream(sys.stdin)
+        else:
+            junction_generator = junctions_from_bed_stream(sys.stdin)
+        query_sample = [0 for _ in xrange(args.features)]
+        for junction in junction_generator:
+            hash_value = mmh3.hash(' '.join(map(str, junction[:3])))
+            multiplier = (-1 if hash_value < 0 else 1)
+            query_sample[hash_value % args.features] += (
+                        multiplier * junction[3]
+                    )
+        annoy_index = AnnoyIndex(args.features)
+        annoy_index.load(args.annoy_idx)
+        print '\n'.join(
+                    '\t'.join(el) for el in zip(
+                                        annoy_index.get_nns_by_vector(
+                                                query_sample, n,
+                                                include_distances=False
+                                            )
+                                        )
+                )
