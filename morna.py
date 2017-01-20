@@ -332,7 +332,7 @@ if __name__ == '__main__':
 
         annoy_index = AnnoyIndex(args.features)  
         for sample_index in sample_feature_matrix:
-            annoy_index.add_item(sample_feature_matrix[sample_index])
+            annoy_index.add_item(i,sample_feature_matrix[sample_index])
 
         annoy_index.build(args.n_trees) # n trees specified by args
         annoy_index.save(args.annoy_idx)
