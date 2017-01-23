@@ -15,6 +15,26 @@ import sys
 from annoy import AnnoyIndex
 from collections import defaultdict
 
+def uniquify(seq):
+    """Returns a version of list seq with duplicate elements reduced to unique
+        seq: a list
+        Return value: a list
+    """
+    seen = set()
+    seen_add = seen.add
+    return [x for x in seq if x not in seen and not seen_add(x)]
+    
+def norm_log(input):
+    """ Returns natural log of input unless input is 0;
+        then it returns 0.0
+        input: integer or float input
+        Return value: a float
+    """
+    if (input == 0):
+        return 0.0
+    else:
+        return log(float(input))
+
 def parsed_md(md):
     """ Divides an MD string up by boundaries between ^, letters, and numbers
         md: an MD string (example: 33A^CC).
@@ -309,9 +329,23 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     if args.intropolis:
+        #First, sample count to facilitate TF-IDF calculation
+        with gzip.open(args.intropolis) as introp_file_handle:
+            for i, line in enumerate(introp_file_handle):
+            if (i % 100 == 0):
+                print( str(i) + " lines into sample count")
+            line_pieces = line.split()
+            samples_with_junction = (line_pieces[6].split(','))
+            samples_with_junction = [int(num) for num in samples_with_junction]
+            for sample in samples_with_junction:
+                all_samples.append(sample)
+
+        unique_samples = uniquify(all_samples)
+        num_samples = len(unique_samples)
+    
         # Index
         sample_feature_matrix = defaultdict(
-                                lambda: [0 for _ in xrange(args.features)])
+                                lambda: [0.0 for _ in xrange(args.features)])
         with gzip.open(args.intropolis) as introp_file_handle:
             for i, introp_line in enumerate(introp_file_handle):
                 introp_line_pieces = introp_line.split()
@@ -321,18 +355,28 @@ if __name__ == '__main__':
                 hashed_value = mmh3.hash(hashable_junction)
                 multiplier = (-1 if hashed_value < 0 else 1)
                 hashed_value = hashed_value % args.features
-            
+                samples_junction_coverages = (introp_line_pieces[7].split(','))
+                samples_junction_coverages = [int(num) for num in
+                                             samples_junction_coverages]
+                                     
+                num_samples_with_junction = len(samples_junction_coverages)
+                idf_value = norm_log(1.0 + 
+                                    (num_samples/num_samples_with_junction))
+        
                 for sample_index, coverage in zip(
                                     introp_line_pieces[6].split(','),
-                                    introp_line_pieces[7].split(',')
+                                    samples_junction_coverages
                                 ):
+                    tf_idf_score = (1+ norm_log(int(coverage)) * idf_value)
                     sample_feature_matrix[
                     int(sample_index)][
-                    hashed_value] += int(coverage)
+                    hashed_value] += (multiplier * tf_idf_score)
 
-        annoy_index = AnnoyIndex(args.features)  
+        annoy_index = AnnoyIndex(args.features)
+        i=0;  
         for sample_index in sample_feature_matrix:
             annoy_index.add_item(i,sample_feature_matrix[sample_index])
+            i+=1
 
         annoy_index.build(args.n_trees) # n trees specified by args
         annoy_index.save(args.annoy_idx)
