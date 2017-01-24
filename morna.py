@@ -19,18 +19,6 @@ from collections import defaultdict
 from math import log
 
 
-    
-def norm_log(input):
-    """ Returns natural log of input unless input is 0;
-        then it returns 0.0
-        input: integer or float input
-        Return value: a float
-    """
-    if (input == 0):
-        return 0.0
-    else:
-        return log(float(input))
-
 def parsed_md(md):
     """ Divides an MD string up by boundaries between ^, letters, and numbers
         md: an MD string (example: 33A^CC).
@@ -367,7 +355,7 @@ if __name__ == '__main__':
                 junction_sample_num_dict[
                                         hashable_junction
                                         ] = num_samples_with_junction
-                idf_value = norm_log(num_samples/num_samples_with_junction)
+                idf_value = log(num_samples/num_samples_with_junction)
                                                             
                 for sample_index, coverage in zip(
                                     introp_line_pieces[6].split(','),
