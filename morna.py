@@ -9,16 +9,32 @@ obtaining nearest neighbors.
 Requires mmh3 (pip install mmh3) and Spotify's annoy (pip install annoy)
 """
 import argparse
+import bisect
+import cPickle
 import gzip
 import mmh3
 import sys
 from annoy import AnnoyIndex
 from collections import defaultdict
+from math import log
+
+def sorted_unique_insert(list, x):
+    """Function using bisect to insert x into a sorted list,
+       unless it's already there.
+       list: a sorted list
+       x: a value comparable to the elements in the list
+       Return value: null
+    """
+    index = bisect.bisect_left(list,x)
+    if not (list[index] == x):
+        list.insert(index,x)
+    return
+    
 
 def uniquify(seq):
     """Returns a version of list seq with duplicate elements reduced to unique
         seq: a list
-        Return value: a list
+        Return value: a list with unique elements
     """
     seen = set()
     seen_add = seen.add
@@ -329,25 +345,33 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     if args.intropolis:
-        #First, sample count to facilitate TF-IDF calculation
+        #First, sample count to facilitate IDF calculation
+        #list is initialized with a value such that new elements will
+        #ALWAYS sort to the left of it; this eliminates a check for empty list 
+        #from sorted_unique_insert which I'm trying to optimize
+        all_samples = set()
+        
         with gzip.open(args.intropolis) as introp_file_handle:
             for i, line in enumerate(introp_file_handle):
-            if (i % 100 == 0):
-                print( str(i) + " lines into sample count")
-            line_pieces = line.split()
-            samples_with_junction = (line_pieces[6].split(','))
-            samples_with_junction = [int(num) for num in samples_with_junction]
-            for sample in samples_with_junction:
-                all_samples.append(sample)
+                if (i % 100 == 0):
+                    print( str(i) + " lines into sample count, " 
+                            + str(len(all_samples)) + " samples so far.")
+                line_pieces = line.split()
+                samples_with_junction = (line_pieces[6].split(','))
+                for sample in samples_with_junction:
+                    all_samples.add(sample)
 
-        unique_samples = uniquify(all_samples)
-        num_samples = len(unique_samples)
+#        unique_samples = uniquify(all_samples)
+        num_samples = len(all_samples)
     
         # Index
         sample_feature_matrix = defaultdict(
                                 lambda: [0.0 for _ in xrange(args.features)])
+        junction_sample_num_dict = {}
         with gzip.open(args.intropolis) as introp_file_handle:
             for i, introp_line in enumerate(introp_file_handle):
+                if (i % 100 == 0):
+                    print( str(i) + " lines into index making")
                 introp_line_pieces = introp_line.split()
                 #right now we hash on 'chromosome start stop'
                 #maybe strand someday but shouldn't matter
@@ -360,21 +384,30 @@ if __name__ == '__main__':
                                              samples_junction_coverages]
                                      
                 num_samples_with_junction = len(samples_junction_coverages)
-                idf_value = norm_log(1.0 + 
-                                    (num_samples/num_samples_with_junction))
-        
+                junction_sample_num_dict[
+                                        hashable_junction
+                                        ] = num_samples_with_junction
+                idf_value = norm_log(num_samples/num_samples_with_junction)
+                                                            
                 for sample_index, coverage in zip(
                                     introp_line_pieces[6].split(','),
                                     samples_junction_coverages
                                 ):
-                    tf_idf_score = (1+ norm_log(int(coverage)) * idf_value)
+                    tf_idf_score = (coverage * idf_value)
+                    #previously used 1+ norm_log(int(coverage))
                     sample_feature_matrix[
-                    int(sample_index)][
-                    hashed_value] += (multiplier * tf_idf_score)
-
+                            int(sample_index)][
+                            hashed_value] += (multiplier * tf_idf_score)
+        
+        with open(args.annoy_idx+".freq",'w') as pickle_output_file:
+            cPickle.dump(junction_sample_num_dict, pickle_output_file,
+                         cPickle.HIGHEST_PROTOCOL)
+            
         annoy_index = AnnoyIndex(args.features)
         i=0;  
         for sample_index in sample_feature_matrix:
+            if (i % 100 == 0):
+                    print( str(i) + " samples into annoy building")
             annoy_index.add_item(i,sample_feature_matrix[sample_index])
             i+=1
 
@@ -399,7 +432,7 @@ if __name__ == '__main__':
         print '\n'.join(
                     '\t'.join(el) for el in zip(
                                         annoy_index.get_nns_by_vector(
-                                                query_sample, n,
+                                                [feature for feature in query_sample], n,
                                                 include_distances=False
                                             )
                                         )
