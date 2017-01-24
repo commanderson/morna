@@ -18,27 +18,7 @@ from annoy import AnnoyIndex
 from collections import defaultdict
 from math import log
 
-def sorted_unique_insert(list, x):
-    """Function using bisect to insert x into a sorted list,
-       unless it's already there.
-       list: a sorted list
-       x: a value comparable to the elements in the list
-       Return value: null
-    """
-    index = bisect.bisect_left(list,x)
-    if not (list[index] == x):
-        list.insert(index,x)
-    return
-    
 
-def uniquify(seq):
-    """Returns a version of list seq with duplicate elements reduced to unique
-        seq: a list
-        Return value: a list with unique elements
-    """
-    seen = set()
-    seen_add = seen.add
-    return [x for x in seq if x not in seen and not seen_add(x)]
     
 def norm_log(input):
     """ Returns natural log of input unless input is 0;
