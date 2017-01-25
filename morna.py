@@ -322,24 +322,26 @@ if __name__ == '__main__':
         with gzip.open(args.intropolis) as introp_file_handle:
             for i, line in enumerate(introp_file_handle):
                 if (i % 100 == 0):
-                    print( str(i) + " lines into sample count, " 
-                            + str(len(all_samples)) + " samples so far.")
+                    sys.stdout.write(str(i) + " lines into sample count, " 
+                            + str(len(all_samples)) + " samples so far.\r")
                 line_pieces = line.split()
                 samples_with_junction = (line_pieces[6].split(','))
                 for sample in samples_with_junction:
                     all_samples.add(sample)
 
-#        unique_samples = uniquify(all_samples)
+        print("")
         num_samples = len(all_samples)
-    
+
         # Index
         sample_feature_matrix = defaultdict(
                                 lambda: [0.0 for _ in xrange(args.features)])
-        junction_sample_num_dict = {}
+        junction_sample_num_dict = {'TOTAL': num_samples}
+        
+        
         with gzip.open(args.intropolis) as introp_file_handle:
             for i, introp_line in enumerate(introp_file_handle):
                 if (i % 100 == 0):
-                    print( str(i) + " lines into index making")
+                    sys.stdout.write(str(i) + " lines into index making\r")
                 introp_line_pieces = introp_line.split()
                 #right now we hash on 'chromosome start stop'
                 #maybe strand someday but shouldn't matter
@@ -375,10 +377,10 @@ if __name__ == '__main__':
         i=0;  
         for sample_index in sample_feature_matrix:
             if (i % 100 == 0):
-                    print( str(i) + " samples into annoy building")
+                    sys.stdout.write( str(i) + " samples into annoy building\r")
             annoy_index.add_item(i,sample_feature_matrix[sample_index])
             i+=1
-
+        
         annoy_index.build(args.n_trees) # n trees specified by args
         annoy_index.save(args.annoy_idx)
     else:
@@ -388,9 +390,16 @@ if __name__ == '__main__':
             junction_generator = junctions_from_sam_stream(sys.stdin)
         else:
             junction_generator = junctions_from_bed_stream(sys.stdin)
+        
+        junction_sample_num_dict = {}
+        with open(args.annoy_idx+".freq",'w') as pickle_output_file:
+            junction_sample_num_dict = cPickle.load(pickle_output_file)
+        num_samples = junction_sample_num_dict['TOTAL']
+        
         query_sample = [0 for _ in xrange(args.features)]
         for junction in junction_generator:
-            hash_value = mmh3.hash(' '.join(map(str, junction[:3])))
+            hashable_junction = ' '.join(map(str, junction[:3]))
+            hash_value = mmh3.hash(hashable_junction)
             multiplier = (-1 if hash_value < 0 else 1)
             query_sample[hash_value % args.features] += (
                         multiplier * junction[3]
@@ -400,7 +409,8 @@ if __name__ == '__main__':
         print '\n'.join(
                     '\t'.join(el) for el in zip(
                                         annoy_index.get_nns_by_vector(
-                                                [feature for feature in query_sample], n,
+                                                [feature for feature in
+                                                 query_sample], n,
                                                 include_distances=False
                                             )
                                         )
