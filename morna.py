@@ -198,6 +198,18 @@ def dummy_md_index(cigar):
                     )
     return ''.join(str(el) for el in md)
 
+def junctions_from_raw_stream(raw_stream):
+    """ Generates junctions from raw stream
+    
+        Raw format has four fields: junction's (chromosome, start (1-based,
+        inclusive), end (1-based, inclusive)), coverage
+        
+        Yield value: tuple (chrom, start position, end position, coverage)
+    """
+    for line in raw_stream:
+        tokens = line.strip().split('\t')
+        yield (tokens[0], tokens[1], tokens[2], int(tokens[3]))
+
 def junctions_from_bed_stream(bed_stream):
     """ Generates junctions from BED stream
 
@@ -305,11 +317,15 @@ if __name__ == '__main__':
             default=None,
             help='larger = more accurage search'
         )
-    parser.add_argument('--bed', action='store_const', const=True,
-            default=False,
-            help=('invoked if format of query sample\'s junctions is TopHat-'
-                  'style BED; otherwise, the input is assumed to be BAM')
+    parser.add_argument('--format', type=str, required=False,
+            default='sam',
+            help=('one of {sam, bed, raw}')
         )
+    parser.add_argument('-ns','--num-samples', type=int, required=False,
+            default=None,
+            help=('optionally specify number of unique sample ids')
+        )
+        
     args = parser.parse_args()
 
     if args.intropolis:
@@ -319,19 +335,23 @@ if __name__ == '__main__':
         #from sorted_unique_insert which I'm trying to optimize
         all_samples = set()
         
-        with gzip.open(args.intropolis) as introp_file_handle:
-            for i, line in enumerate(introp_file_handle):
-                if (i % 100 == 0):
-                    sys.stdout.write(str(i) + " lines into sample count, " 
-                            + str(len(all_samples)) + " samples so far.\r")
-                line_pieces = line.split()
-                samples_with_junction = (line_pieces[6].split(','))
-                for sample in samples_with_junction:
-                    all_samples.add(sample)
+        num_samples = args.num_samples
+        
+        if not args.num_samples:
+            with gzip.open(args.intropolis) as introp_file_handle:
+                for i, line in enumerate(introp_file_handle):
+                    if (i % 100 == 0):
+                        sys.stdout.write(str(i) + " lines into sample count, " 
+                                + str(len(all_samples)) + " samples so far.\r")
+                    line_pieces = line.split()
+                    samples_with_junction = (line_pieces[6].split(','))
+                    for sample in samples_with_junction:
+                        all_samples.add(sample)
 
-        print("")
-        num_samples = len(all_samples)
+            print("")
+            num_samples = len(all_samples)
 
+        
         # Index
         sample_feature_matrix = defaultdict(
                                 lambda: [0.0 for _ in xrange(args.features)])
@@ -357,7 +377,7 @@ if __name__ == '__main__':
                 junction_sample_num_dict[
                                         hashable_junction
                                         ] = num_samples_with_junction
-                idf_value = log(num_samples/num_samples_with_junction)
+                idf_value = log(float(num_samples)/num_samples_with_junction)
                                                             
                 for sample_index, coverage in zip(
                                     introp_line_pieces[6].split(','),
@@ -386,23 +406,31 @@ if __name__ == '__main__':
     else:
         # Search
         # Read BED or BAM
-        if args.bed:
+        if args.format == 'sam':
             junction_generator = junctions_from_sam_stream(sys.stdin)
-        else:
+        elif args.format == 'bed':
             junction_generator = junctions_from_bed_stream(sys.stdin)
+        else:
+            assert args.format == 'raw'
+            junction_generator = junctions_from_raw_stream(sys.stdin)
         
         junction_sample_num_dict = {}
         with open(args.annoy_idx+".freq",'w') as pickle_output_file:
             junction_sample_num_dict = cPickle.load(pickle_output_file)
         num_samples = junction_sample_num_dict['TOTAL']
         
+        
+        
         query_sample = [0 for _ in xrange(args.features)]
         for junction in junction_generator:
             hashable_junction = ' '.join(map(str, junction[:3]))
+            num_samples_with_junction = junction_sample_num_dict[
+                                                hashable_junction]
+            idf_value = log(float(num_samples)/num_samples_with_junction)
             hash_value = mmh3.hash(hashable_junction)
             multiplier = (-1 if hash_value < 0 else 1)
             query_sample[hash_value % args.features] += (
-                        multiplier * junction[3]
+                        multiplier * (junction[3] * idf_value)
                     )
         annoy_index = AnnoyIndex(args.features)
         annoy_index.load(args.annoy_idx)
