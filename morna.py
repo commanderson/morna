@@ -410,7 +410,8 @@ if __name__ == '__main__':
                     '\t'.join(el) for el in zip(
                                         annoy_index.get_nns_by_vector(
                                                 [feature for feature in
-                                                 query_sample], n,
+                                                 query_sample], 10,
+                                                 args.search_k,
                                                 include_distances=False
                                             )
                                         )
