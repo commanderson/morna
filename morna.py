@@ -424,7 +424,10 @@ if __name__ == '__main__':
         
         
         query_sample = [0 for _ in xrange(args.features)]
+        i=0
         for junction in junction_generator:
+            if (i % 100 == 0):
+                sys.stdout.write( str(i) + " junctions into query sample\r")
             hashable_junction = ' '.join(map(str, junction[:3]))
             num_samples_with_junction = junction_sample_num_dict[
                                                 hashable_junction]
@@ -434,15 +437,19 @@ if __name__ == '__main__':
             query_sample[hash_value % args.features] += (
                         multiplier * (junction[3] * idf_value)
                     )
+            i+=1
+            
+        print("")
         annoy_index = AnnoyIndex(args.features)
         annoy_index.load(args.annoy_idx)
         print '\n'.join(
                     '\t'.join(el) for el in zip(
                                         annoy_index.get_nns_by_vector(
                                                 [feature for feature in
-                                                 query_sample], 10,
+                                                 query_sample], 
+                                                 10,
                                                  args.search_k,
-                                                include_distances=False
+                                                 False
                                             )
                                         )
                 )
