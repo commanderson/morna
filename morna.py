@@ -321,7 +321,7 @@ if __name__ == '__main__':
             default='sam',
             help=('one of {sam, bed, raw}')
         )
-    parser.add_argument('-ns','--num-samples', type=int, required=False,
+    parser.add_argument('-s','--num-samples', type=int, required=False,
             default=None,
             help=('optionally specify number of unique sample ids')
         )
@@ -350,8 +350,9 @@ if __name__ == '__main__':
 
             print("")
             num_samples = len(all_samples)
-
-        
+            print("Samples counted:")
+            
+        print("There are " + str(num_samples) + " samples.")
         # Index
         sample_feature_matrix = defaultdict(
                                 lambda: [0.0 for _ in xrange(args.features)])
@@ -392,7 +393,8 @@ if __name__ == '__main__':
         with open(args.annoy_idx+".freq",'w') as pickle_output_file:
             cPickle.dump(junction_sample_num_dict, pickle_output_file,
                          cPickle.HIGHEST_PROTOCOL)
-            
+        print("")
+        
         annoy_index = AnnoyIndex(args.features)
         i=0;  
         for sample_index in sample_feature_matrix:
@@ -400,7 +402,7 @@ if __name__ == '__main__':
                     sys.stdout.write( str(i) + " samples into annoy building\r")
             annoy_index.add_item(i,sample_feature_matrix[sample_index])
             i+=1
-        
+        print("")
         annoy_index.build(args.n_trees) # n trees specified by args
         annoy_index.save(args.annoy_idx)
     else:
@@ -415,8 +417,8 @@ if __name__ == '__main__':
             junction_generator = junctions_from_raw_stream(sys.stdin)
         
         junction_sample_num_dict = {}
-        with open(args.annoy_idx+".freq",'w') as pickle_output_file:
-            junction_sample_num_dict = cPickle.load(pickle_output_file)
+        with open(args.annoy_idx+".freq") as pickle_dict_file:
+            junction_sample_num_dict = cPickle.load(pickle_dict_file)
         num_samples = junction_sample_num_dict['TOTAL']
         
         
