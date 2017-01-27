@@ -12,6 +12,7 @@ import argparse
 import bisect
 import cPickle
 import gzip
+import madoka
 import mmh3
 import sys
 from annoy import AnnoyIndex
@@ -301,8 +302,8 @@ if __name__ == '__main__':
             default=None,
             help='path to gzipped intropolis; specify only when indexing'
         )
-    parser.add_argument('-x', '--annoy-idx', type=str, required=False,
-            default='jx.idx',
+    parser.add_argument('-x', '--basename', type=str, required=False,
+            default='morna',
             help='path to junction index for either writing or reading'
         )
     parser.add_argument('--features', type=int, required=False,
@@ -356,8 +357,11 @@ if __name__ == '__main__':
         # Index
         sample_feature_matrix = defaultdict(
                                 lambda: [0.0 for _ in xrange(args.features)])
-        junction_sample_num_dict = {'TOTAL': num_samples}
         
+        with open(args.basename + ".stats.mor", 'w') as num_fh:
+            num_fh.write(str(num_samples))
+        
+        junction_sketch = madoka.CroquisUint16()
         
         with gzip.open(args.intropolis) as introp_file_handle:
             for i, introp_line in enumerate(introp_file_handle):
@@ -375,9 +379,8 @@ if __name__ == '__main__':
                                              samples_junction_coverages]
                                      
                 num_samples_with_junction = len(samples_junction_coverages)
-                junction_sample_num_dict[
-                                        hashable_junction
-                                        ] = num_samples_with_junction
+                junction_sketch[hashable_junction
+                                        ] += num_samples_with_junction
                 idf_value = log(float(num_samples)/num_samples_with_junction)
                                                             
                 for sample_index, coverage in zip(
@@ -390,9 +393,8 @@ if __name__ == '__main__':
                             int(sample_index)][
                             hashed_value] += (multiplier * tf_idf_score)
         
-        with open(args.annoy_idx+".freq",'w') as pickle_output_file:
-            cPickle.dump(junction_sample_num_dict, pickle_output_file,
-                         cPickle.HIGHEST_PROTOCOL)
+        junction_sketch.save(arg.basename + ".sketch.mor")
+        
         print("")
         
         annoy_index = AnnoyIndex(args.features)
@@ -404,7 +406,7 @@ if __name__ == '__main__':
             i+=1
         print("")
         annoy_index.build(args.n_trees) # n trees specified by args
-        annoy_index.save(args.annoy_idx)
+        annoy_index.save(args.basename + '.annoy.mor')
     else:
         # Search
         # Read BED or BAM
@@ -415,21 +417,23 @@ if __name__ == '__main__':
         else:
             assert args.format == 'raw'
             junction_generator = junctions_from_raw_stream(sys.stdin)
+                
+        num_samples = 0
+        with open(args.basename + ".stats.mor") as num_fh:
+            for introp_line in enumerate(introp_file_handle):
+                num_samples = int(line)
         
-        junction_sample_num_dict = {}
-        with open(args.annoy_idx+".freq") as pickle_dict_file:
-            junction_sample_num_dict = cPickle.load(pickle_dict_file)
-        num_samples = junction_sample_num_dict['TOTAL']
-        
-        
+        junction_sketch = madoka.CroquisUint16()
+        junction_sketch.load(arg.basename + ".sketch.mor")
         
         query_sample = [0 for _ in xrange(args.features)]
-        i=0
-        for junction in junction_generator:
+        for i, junction in enumerate(junction_generator):
             if (i % 100 == 0):
-                sys.stdout.write( str(i) + " junctions into query sample\r")
+                sys.stderr.write( str(i) + " junctions into query sample\r")
             hashable_junction = ' '.join(map(str, junction[:3]))
-            num_samples_with_junction = junction_sample_num_dict[
+            
+            
+            num_samples_with_junction = junction_sketch[
                                                 hashable_junction]
             idf_value = log(float(num_samples)/num_samples_with_junction)
             hash_value = mmh3.hash(hashable_junction)
@@ -437,19 +441,14 @@ if __name__ == '__main__':
             query_sample[hash_value % args.features] += (
                         multiplier * (junction[3] * idf_value)
                     )
-            i+=1
             
         print("")
         annoy_index = AnnoyIndex(args.features)
         annoy_index.load(args.annoy_idx)
-        print '\n'.join(
-                    '\t'.join(el) for el in zip(
-                                        annoy_index.get_nns_by_vector(
+        print annoy_index.get_nns_by_vector(
                                                 [feature for feature in
                                                  query_sample], 
-                                                 10,
+                                                 500,
                                                  args.search_k,
-                                                 False
+                                                 include_distances=True
                                             )
-                                        )
-                )
