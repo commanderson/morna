@@ -105,7 +105,7 @@ class MornaIndex(AnnoyIndex)
                          cPickle.HIGHEST_PROTOCOL)
 
 class MornaSearch(object):
-    def __init__(self, whatever):
+    def __init__(self, dim=3000, basename):
         # Load AnnoyIndex with AnnoyIndex class, not MornaIndex
 
 if __name__ == '__main__':
