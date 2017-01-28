@@ -112,9 +112,9 @@ class MornaSearch(object):
         number of samples in which it's found (basename.freq.mor), and
         a stats file including the total number of samples (basename.stats.mor).
     """
-    def __init__(self, dim=3000, basename):
+    def __init__(self, basename, dim=3000):
         # Load AnnoyIndex with AnnoyIndex class, not MornaIndex
-        self.dim = dim
+        self.dim = self.dimension_count = dim
         self.query_sample = [0.0 for _ in xrange(dim)]
         
         self.annoy_index = AnnoyIndex(dim)
@@ -129,9 +129,8 @@ class MornaSearch(object):
     def update_query(junction)
         hashable_junction = ' '.join(map(str, junction[:3]))
             
-        num_samples_with_junction = self.sample_frequencies[hashable_junction]
-        
-        idf_value = log(float(self.sample_count)/num_samples_with_junction)
+        idf_value = log(float(self.sample_count)
+                        / self.sample_frequencies[hashable_junction])
         hash_value = mmh3.hash(hashable_junction)
         multiplier = (-1 if hash_value < 0 else 1)
         self.query_sample[hash_value % self.dim] += (
