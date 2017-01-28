@@ -170,7 +170,8 @@ if __name__ == '__main__':
                         samples.update(line.rpartition('\t')[-1].split(','))
             args.sample_count = len(samples)
             print 'There are {} samples.'.format(args.sample_count)
-        morna_index = MornaIndex(args.sample_count, dim=args.features)
+        morna_index = MornaIndex(args.sample_count, dim=args.features,
+                                    sample_threshold=args.sample_threshold)
         with gzip.open(args.intropolis) as introp_file_handle:
             if args.verbose:
                 for i, line in enumerate(introp_file_handle):
