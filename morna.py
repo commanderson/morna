@@ -19,7 +19,7 @@ from collections import defaultdict
 from math import log
 from utils import *
 
-class MornaIndex(AnnoyIndex)
+class MornaIndex(AnnoyIndex):
     """ Augments AnnoyIndex to accommodate parameters needed by morna
 
         Three index files are written when invoking save(): an Annoy index
