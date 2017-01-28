@@ -19,6 +19,11 @@ from collections import defaultdict
 from math import log
 from utils import *
 
+_help_intro = \
+"""morna searches for known RNA-seq samples with exon-exon junction expression
+patterns similar to those in a query sample.
+"""
+
 class MornaIndex(AnnoyIndex):
     """ Augments AnnoyIndex to accommodate parameters needed by morna
 
@@ -149,49 +154,76 @@ class MornaSearch(object):
                                             )
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description=__doc__, 
-                formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(description=_help_intro, 
+                formatter_class=help_formatter)
+    subparsers = parser.add_subparsers(help=(
+                'subcommands; add "-h" or "--help" '
+                'after a subcommand for its parameters')
+            )
+    index_parser = subparsers.add_parser('index', help='creates a morna index')
+    search_parser = subparsers.add_parser('search',
+                                            help='searches a morna index')
     # Add command-line arguments
-    parser.add_argument('--intropolis', type=str, required=False,
-            default=None,
-            help='path to gzipped intropolis; specify only when indexing'
+    index_parser.add_argument('--intropolis', metavar='<str>', type=str,
+            required=True,
+            help=('path to gzipped file recording junctions across samples '
+                  'in intropolis format')
         )
-    parser.add_argument('-x', '--basename', type=str, required=False,
+    index_parser.add_argument('-x', '--basename', metavar='<str>', type=str,
+            required=False,
             default='morna',
-            help='path to junction index for either writing or reading'
+            help='basename path of junction index files to create'
         )
-    parser.add_argument('--features', type=int, required=False,
+    search_parser.add_argument('-x', '--basename', metavar='<str>', type=str,
+            required=True,
+            help='basename path of junction index to search'
+        )
+    index_parser.add_argument('--features', metavar='<int>', type=int,
+            required=False,
             default=3000,
             help='dimension of feature space'
         )
-    parser.add_argument('--n-trees', type=int, required=False,
+    index_parser.add_argument('--n-trees', metavar='<int>', type=int,
+            required=False,
             default=200,
             help='number of annoy trees'
         )
-    parser.add_argument('--search-k', type=int, required=False,
+    search_parser.add_argument('--search-k', metavar='<int>', type=int,
+            required=False,
             default=None,
-            help='larger = more accurage search'
+            help='a larger value makes for more accurate search'
         )
-    parser.add_argument('--format', type=str, required=False,
+    search_parser.add_argument('-f', '--format', metavar='<choice>', type=str,
+            required=False,
             default='sam',
             help=('one of {sam, bed, raw}')
         )
-    parser.add_argument('-s','--sample-count', type=int, required=False,
+    index_parser.add_argument('-s','--sample-count', metavar='<int>', type=int,
+            required=False,
             default=None,
-            help=('optionally specify number of unique sample ids')
+            help=('optionally specify number of unique samples to speed '
+                  'indexing')
         )
-    parser.add_argument('-t', '--sample-threshold', type=int, required=False,
+    index_parser.add_argument('-t', '--sample-threshold', metavar='<int>',
+            type=int,
+            required=False,
             default=100,
-            help='minimum number of samples in which a junction should appear '
-                 'for it to be included in morna index')
-    parser.add_argument('-v', '--verbose', action='store_const', const=True,
+            help=('minimum number of samples in which a junction should '
+                  'appear for it to be included in morna index')
+        )
+    index_parser.add_argument('-v', '--verbose', action='store_const',
+            const=True,
             default=False,
             help='be talkative'
         )
-        
+    search_parser.add_argument('-v', '--verbose', action='store_const',
+            const=True,
+            default=False,
+            help='be talkative'
+        )
     args = parser.parse_args()
 
-    if args.intropolis:
+    if hasattr(args, 'intropolis'):
         # Index
         if not args.sample_count:
             # Count number of samples
