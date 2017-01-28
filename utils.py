@@ -4,6 +4,11 @@ utils.py
 
 Helper functions for morna; many are taken from Rail-RNA.
 """
+from argparse import HelpFormatter
+
+def help_formatter(prog):
+    """ So formatter_class's max_help_position can be changed. """
+    return HelpFormatter(prog, max_help_position=40)
 
 def parsed_md(md):
     """ Divides an MD string up by boundaries between ^, letters, and numbers
