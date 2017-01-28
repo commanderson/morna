@@ -105,8 +105,49 @@ class MornaIndex(AnnoyIndex):
                          cPickle.HIGHEST_PROTOCOL)
 
 class MornaSearch(object):
+    """A class for searching our morna indexes, 
+        
+        Three index files are needed when initializing: an Annoy index
+        (basename.annoy.mor), a dictionary that maps each junction to the 
+        number of samples in which it's found (basename.freq.mor), and
+        a stats file including the total number of samples (basename.stats.mor).
+    """
     def __init__(self, dim=3000, basename):
         # Load AnnoyIndex with AnnoyIndex class, not MornaIndex
+        self.dim = dim
+        self.query_sample = [0.0 for _ in xrange(dim)]
+        
+        self.annoy_index = AnnoyIndex(dim)
+        self.annoy_index.load(basename + '.annoy.mor')
+        
+        with open(basename + ".stats.mor") as stats_stream:
+            self.sample_count = int(stats_stream.readline())
+        
+        with open(basename + ".freq.mor") as pickle_stream:
+            self.sample_frequencies = cPickle.load(pickle_stream)
+    
+    def update_query(junction)
+        hashable_junction = ' '.join(map(str, junction[:3]))
+            
+        num_samples_with_junction = self.sample_frequencies[hashable_junction]
+        
+        idf_value = log(float(self.sample_count)/num_samples_with_junction)
+        hash_value = mmh3.hash(hashable_junction)
+        multiplier = (-1 if hash_value < 0 else 1)
+        self.query_sample[hash_value % self.dim] += (
+                    multiplier * (junction[3] * idf_value)
+                )
+        
+        
+            
+    def search_nn(num_neighbors, search_k, include_distances=True)
+        print annoy_index.get_nns_by_vector(
+                                            [feature for feature in
+                                             self.query_sample], 
+                                             num_neighbors,
+                                             search_k,
+                                             include_distances
+                                            )
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__, 
@@ -203,6 +244,11 @@ if __name__ == '__main__':
         else:
             assert args.format == 'raw'
             junction_generator = junctions_from_raw_stream(sys.stdin)
+        
+        
+        searcher = MornaSearch(dim=args.features, basename=args.basename) 
+        
+        
                 
         num_samples = 0
         with open(args.basename + ".stats.mor") as num_fh:
