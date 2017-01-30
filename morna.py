@@ -89,7 +89,7 @@ class MornaIndex(AnnoyIndex):
         """
         if verbose:
             for i, sample in enumerate(self.sample_feature_matrix):
-                self.add_item(sample, sample_feature_matrix[sample])
+                self.add_item(sample, self.sample_feature_matrix[sample])
                 if not (i % 100):
                     print >>sys.stderr, (
                             'Added {} samples to Annoy index so far.'
@@ -99,7 +99,7 @@ class MornaIndex(AnnoyIndex):
                 ).format(i+1)
         else:
             for sample in self.sample_feature_matrix:
-                self.add_item(sample, sample_feature_matrix)
+                self.add_item(sample, self.sample_feature_matrix)
         super(MornaIndex, self).build(n_trees)
 
     def save(self, basename):
@@ -267,7 +267,8 @@ if __name__ == '__main__':
                             map(int, tokens[-2].split(',')), # samples
                             map(int, tokens[-1].split(',')) # coverages
                         )
-        print('')
+        if args.verbose: 
+            print 'Finished making index; now building'
         morna_index.build(args.n_trees, verbose=args.verbose)
         morna_index.save(args.basename)
     else:

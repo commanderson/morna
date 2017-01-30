@@ -1,13 +1,13 @@
 #!/usr/bin/env python
 
-#import re
 import argparse
+import gzip
 import random
 import sqlite3
+import sys
 import tempfile
 from math import log
 from itertools import izip
-#import linecache
 
 def magic_sql_write(cursor, sample_id, tf_idf_score):
     """ Wrapper function for writing to our temp sql db
@@ -42,31 +42,7 @@ def norm_log(input):
         return 0.0
     else:
         return log(float(input))
-    
-def tf_idf_score(frequency_matrix):
-    """ Produces a sample-by-junction tf-idf matrix,
-        given a sample-by-junction raw frequency matrix
-        frequency_matrix: a matrix where each row represents a unique exon-exon
-        junction, and each column corresponds to a different sample; cells 
-        contain raw coverage number of reads spanning that junction 
-        in the corresponding sample
-        Return value: a matrix of the same dimensions contining tf-idf scores
-        calculated using junctions as terms and samples as documents.
-    """
-    #As of now, the term frequency measure is 1+log(junction coverage),
-    #and the inverse document frequency is:
-    # log(1+(number of samples/number of samples where junction is present)
-    num_samples = float(len(frequency_matrix[0]))
-    junction_present_counts = [0 for x in range(len(frequency_matrix)+1)]
-    for i,row in enumerate(frequency_matrix):
-        samples_with_junction = len([x for x in row if x > 0])
-#        print samples_with_junction
-#        print row
-        for j,frequency in enumerate(row):
-            frequency_matrix[i][j] = ((1+ norm_log(frequency_matrix[i][j])) *
-                            norm_log(1.0 + (num_samples/samples_with_junction)))        
-    return frequency_matrix
-    
+        
 def match(lst, value):
     """ Produces the index in a UNIQUE list whose contents matches a value
         lst: list to search within
@@ -104,45 +80,54 @@ random.seed(8675309)
 
 #First set up parser and parse in input file's name.
 parser = argparse.ArgumentParser()
-parser.add_argument("-f", nargs="?")
-
+parser.add_argument('-f', '--file', metavar='<str>', type=str,
+            required=True,
+            help=('path to gzipped file recording junctions across samples '
+                  'in intropolis format')
+        )
+parser.add_argument('-v', '--verbose', action='store_const',
+            const=True,
+            default=False,
+            help='be talkative'
+        )
 
 args = parser.parse_args()
-junctions_file = args.f
+junctions_file = args.file
 
 #Next we need a list of all the samples; we'll go by indices now
 #and look up in the idmap file later.
 
 #We must determine the number of samples to do IDF calculations
-all_samples = []
+all_samples = set()
 
 #########################
 #pass1: count of samples#
 #########################
 
-with open(junctions_file) as junc_file_handle:
-    for i, line in enumerate(junc_file_handle):
-        if (i % 100 == 0):
-            print( str(i) + " lines into sample count")
-        line_pieces = line.split()
-        #id_string = '_'.join(line_pieces[0:4])
-        #junctions.append(id_string)
-        samples_with_junction = (line_pieces[6].split(','))
-        samples_with_junction = [int(num) for num in samples_with_junction]
-        for sample in samples_with_junction:
-            all_samples.append(sample)
+with gzip.open(args.file) as introp_file_handle:
+    if args.verbose:
+        for i, line in enumerate(introp_file_handle):
+            if i % 100 == 0:
+                sys.stdout.write(
+                    str(i) + " lines into sample count, " 
+                    + str(len(all_samples)) + " samples so far.\r"
+                )
+            all_samples.update(line.rpartition('\t')[-1].split(','))
+    else:
+        for i, line in enumerate(introp_file_handle):
+            all_samples.update(line.rpartition('\t')[-1].split(','))
+num_samples = len(all_samples)
+print '\nThere are {} samples.'.format(args.sample_count)
 
-unique_samples = uniquify(all_samples)
-num_samples = len(unique_samples)
-            
 ###########################################
 #pass2: create intropolis of tf-idf scores#
 ###########################################
 
-tf_idf_file = junctions_file + ".tf_idf"
+tf_idf_file = args.file + ".tf_idf"
 
-with open(junctions_file) as junc_file_handle, \
+with gzip.open(args.file) as junc_file_handle, \
      open(tf_idf_file, 'w') as tf_idf_file_handle:
+    if args.verbose:
     for i, introp_line in enumerate(junc_file_handle):
         if (i % 100 == 0):
             print( str(i) + " lines into 2nd pass (tf-idf) writing")
@@ -157,11 +142,11 @@ with open(junctions_file) as junc_file_handle, \
                                      samples_junction_coverages]
                                      
         num_samples_with_junction = len(samples_junction_coverages)
-        idf_value = norm_log(1.0 + (num_samples/num_samples_with_junction))
+        idf_value = log((num_samples/num_samples_with_junction))
         
         first_one = True    #must format commas appropriately!
         for j, coverage in enumerate(samples_junction_coverages):
-            tf_idf_score = (1+ norm_log(coverage) * idf_value)
+            tf_idf_score = ((coverage) * idf_value)
             if (first_one):   
                 tf_idf_file_handle.write("\t" + str(tf_idf_score))
                 first_one = False
@@ -169,7 +154,6 @@ with open(junctions_file) as junc_file_handle, \
                 tf_idf_file_handle.write("," + str(tf_idf_score))
         tf_idf_file_handle.write("\n")
         
-unique_samples = sorted(unique_samples)
 chosen_sample_ids = random.sample(unique_samples,3)
 print("randomly chosen sample ids are: " + str(chosen_sample_ids))
 
@@ -181,40 +165,68 @@ print("randomly chosen sample ids are: " + str(chosen_sample_ids))
 ##TODO: Make the db files temporary files
 conn = sqlite3.connect('tf_idf_temp.db')
 cursor = conn.cursor()
+if args.verbose:
+    for i,sample_id in enumerate(all_samples):
+        print("Creating table number " + str(i) + ", sample " + str(sample_id)
+        #I don't think we worry about injection, but if we do I'm
+        #currently assuming our int conversion prevents it 
+        cursor.execute("CREATE TABLE sample_%d (tf_ifd float)" 
+                        % sample_id)
+else:
+    for i,sample_id in enumerate(all_samples):
+        cursor.execute("CREATE TABLE sample_%d (tf_ifd float)" 
+                        % sample_id)
 
-for sample_id in chosen_sample_ids:
-    #I don't think we worry about injection, but if we do I'm
-    #currently assuming our int conversion prevents it 
-    cursor.execute("CREATE TABLE sample_%d (tf_ifd float)" 
-                    % sample_id)
-
-with open(junctions_file) as junc_file_handle, \
+with gzip.open(args.file) as junc_file_handle, \
      open(tf_idf_file) as tf_idf_file_handle:
     i = 0;
-    for introp_line, score_line in izip(junc_file_handle, tf_idf_file_handle):
-        if (i % 100 == 0):
-            print( str(i) + " lines into 3rd pass (inversion into sql)")
-        samples_with_junction = ((introp_line.split())[6]).split(',')
-        samples_with_junction = [int(num) for num in samples_with_junction]
+    if args.verbose:
+        for introp_line, score_line in izip(junc_file_handle, 
+                                            tf_idf_file_handle):
+            if (i % 100 == 0):
+                print( str(i) + " lines into 3rd pass (inversion into sql)")
+            samples_with_junction = ((introp_line.split())[6]).split(',')
+            samples_with_junction = [int(num) for num in samples_with_junction]
         
-        tf_idfs_of_samples = ((score_line.split())[6]).split(',')
-        tf_idfs_of_samples = [float(num) for num in tf_idfs_of_samples]
+            tf_idfs_of_samples = ((score_line.split())[6]).split(',')
+            tf_idfs_of_samples = [float(num) for num in tf_idfs_of_samples]
         
                 
+            for j, sample_id in enumerate(all_samples):
+                if sample_id in samples_with_junction:
+                    #print("SPECIAL")
+                    magic_sql_write(cursor, sample_id, tf_idfs_of_samples[j])
+                else:
+                    #print("DEFAULT")
+                    magic_sql_write(cursor, sample_id, 0.0)
+            i+=1
+        else:
+            for introp_line, score_line in izip(junc_file_handle, 
+                                            tf_idf_file_handle):
+            samples_with_junction = ((introp_line.split())[6]).split(',')
+            samples_with_junction = [int(num) for num in samples_with_junction]
         
-        for j, sample_id in enumerate(chosen_sample_ids):
-            if sample_id in samples_with_junction:
-                #print("SPECIAL")
-                magic_sql_write(cursor, sample_id, tf_idfs_of_samples[j])
-            else:
-                #print("DEFAULT")
-                magic_sql_write(cursor, sample_id, 0.0)
-        i+=1
+            tf_idfs_of_samples = ((score_line.split())[6]).split(',')
+            tf_idfs_of_samples = [float(num) for num in tf_idfs_of_samples]
         
+                
+            for j, sample_id in enumerate(all_samples):
+                if sample_id in samples_with_junction:
+                    #print("SPECIAL")
+                    magic_sql_write(cursor, sample_id, tf_idfs_of_samples[j])
+                else:
+                    #print("DEFAULT")
+                    magic_sql_write(cursor, sample_id, 0.0)
+            i+=1
+conn.commit()
+conn.close()
+    
 for sample_id in chosen_sample_ids:
     print("Contents of sample " + str(sample_id))
-    for row in cursor.execute("SELECT * FROM sample_%d" %sample_id):
+    for row in cursor.execute(
+    "SELECT * FROM sample_%d ORDER BY ROWID ASC LIMIT 1" %sample_id):
         print row
         
-for sample_id in chosen_sample_ids:
-    cursor.execute("DROP TABLE sample_%d" %sample_id)
+#for sample_id in chosen_sample_ids:
+#    cursor.execute("DROP TABLE sample_%d" %sample_id)
+    
