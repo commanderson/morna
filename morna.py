@@ -37,6 +37,8 @@ class MornaIndex(AnnoyIndex):
     """
     def __init__(self, sample_count, dim=3000, sample_threshold=100):
         super(MornaIndex, self).__init__(dim, metric='angular')
+        # Store the total number of samples represented in the index
+        self.sample_count = sample_count
         # Store numbers of samples in which each junction is found
         self.sample_frequencies = defaultdict(int)
         # Store low-dimensional representations of samples
@@ -48,7 +50,7 @@ class MornaIndex(AnnoyIndex):
         # Minimum number of samples in which junction should be found
         self.sample_threshold = sample_threshold
 
-    def add_junction(junction, samples, coverages):
+    def add_junction(self, junction, samples, coverages):
         """ Adds contributions of a single junction to feature vectors
 
             junction: string representation of junction
@@ -64,10 +66,12 @@ class MornaIndex(AnnoyIndex):
         self.sample_frequencies[junction] += len(samples)
         #right now we hash on 'chromosome start stop'
         #maybe strand someday but shouldn't matter
-        value = mmh3.hash(junction)
-        multiplier = (-1 if value < 0 else 1)
-        hashed_value = hashed_value % args.features
-        idf_value = log(float(num_samples) / self.sample_frequencies[junction])                                           
+        hashed_value = mmh3.hash(junction)
+        multiplier = (-1 if hashed_value < 0 else 1)
+        hashed_value = hashed_value % self.dim
+        idf_value = log(float(self.sample_count) 
+                        / self.sample_frequencies[junction]
+                        )
         for sample, coverage in zip(samples, coverages):
             tf_idf_score = (coverage * idf_value)
             #previously used 1+ norm_log(int(coverage))
@@ -131,7 +135,7 @@ class MornaSearch(object):
         with open(basename + ".freq.mor") as pickle_stream:
             self.sample_frequencies = cPickle.load(pickle_stream)
     
-    def update_query(junction)
+    def update_query(self, junction):
         hashable_junction = ' '.join(map(str, junction[:3]))
             
         idf_value = log(float(self.sample_count)
@@ -144,7 +148,7 @@ class MornaSearch(object):
         
         
             
-    def search_nn(num_neighbors, search_k, include_distances=True)
+    def search_nn(self, num_neighbors, search_k, include_distances=True):
         print annoy_index.get_nns_by_vector(
                                             [feature for feature in
                                              self.query_sample], 
@@ -234,14 +238,14 @@ if __name__ == '__main__':
                         if i % 100 == 0:
                             sys.stdout.write(
                                 str(i) + " lines into sample count, " 
-                                + str(len(all_samples)) + " samples so far.\r"
+                                + str(len(samples)) + " samples so far.\r"
                             )
                         samples.update(line.rpartition('\t')[-1].split(','))
                 else:
-                    for line in enumerate(introp_file_handle):
+                    for i, line in enumerate(introp_file_handle):
                         samples.update(line.rpartition('\t')[-1].split(','))
             args.sample_count = len(samples)
-            print 'There are {} samples.'.format(args.sample_count)
+            print '\nThere are {} samples.'.format(args.sample_count)
         morna_index = MornaIndex(args.sample_count, dim=args.features,
                                     sample_threshold=args.sample_threshold)
         with gzip.open(args.intropolis) as introp_file_handle:
@@ -251,18 +255,19 @@ if __name__ == '__main__':
                         sys.stdout.write(str(i) + " lines into index making\r")
                     tokens = line.strip().split('\t')
                     morna_index.add_junction(
-                            ' ' .join(tokens[:3]),
+                            ' '.join(tokens[:3]),
                             map(int, tokens[-2].split(',')), # samples
-                            map(int, tokens[-1].split('',)) # coverages
+                            map(int, tokens[-1].split(',')) # coverages
                         )
             else:
                 for line in introp_file_handle:
                     tokens = line.strip().split('\t')
                     morna_index.add_junction(
-                            ' ' .join(tokens[:3]),
+                            ' '.join(tokens[:3]),
                             map(int, tokens[-2].split(',')), # samples
-                            map(int, tokens[-1].split('',)) # coverages
+                            map(int, tokens[-1].split(',')) # coverages
                         )
+        print('')
         morna_index.build(args.n_trees, verbose=args.verbose)
         morna_index.save(args.basename)
     else:
@@ -278,40 +283,17 @@ if __name__ == '__main__':
         
         
         searcher = MornaSearch(dim=args.features, basename=args.basename) 
-        
-        
+
+        if args.verbose:
+            for i, junction in enumerate(junction_generator):
+                if (i % 100 == 0):
+                    sys.stderr.write( str(i) + " junctions into query sample\r")
+                searcher.update_query(junction)
+        else:
+            for i, junction in enumerate(junction_generator):
+                searcher.update_query(junction)
                 
-        num_samples = 0
-        with open(args.basename + ".stats.mor") as num_fh:
-            for introp_line in enumerate(introp_file_handle):
-                num_samples = int(line)
-        
-        junction_sketch = madoka.CroquisUint16()
-        junction_sketch.load(arg.basename + ".sketch.mor")
-        
-        query_sample = [0 for _ in xrange(args.features)]
-        for i, junction in enumerate(junction_generator):
-            if (i % 100 == 0):
-                sys.stderr.write( str(i) + " junctions into query sample\r")
-            hashable_junction = ' '.join(map(str, junction[:3]))
-            
-            
-            num_samples_with_junction = junction_sketch[
-                                                hashable_junction]
-            idf_value = log(float(num_samples)/num_samples_with_junction)
-            hash_value = mmh3.hash(hashable_junction)
-            multiplier = (-1 if hash_value < 0 else 1)
-            query_sample[hash_value % args.features] += (
-                        multiplier * (junction[3] * idf_value)
-                    )
-            
-        print("")
+        print >>sys.stderr,('')
         annoy_index = AnnoyIndex(args.features)
         annoy_index.load(args.annoy_idx)
-        print annoy_index.get_nns_by_vector(
-                                                [feature for feature in
-                                                 query_sample], 
-                                                 500,
-                                                 args.search_k,
-                                                 include_distances=True
-                                            )
+        search_nn(500, args.search_k, include_distances=True)
