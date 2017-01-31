@@ -69,7 +69,7 @@ class MornaIndex(AnnoyIndex):
         hashed_value = mmh3.hash(junction)
         multiplier = (-1 if hashed_value < 0 else 1)
         hashed_value = hashed_value % self.dim
-        idf_value = log(float(self.sample_count + 1) 
+        idf_value = log(float(self.sample_count) 
                         / self.sample_frequencies[junction]
                         )
         for sample, coverage in zip(samples, coverages):

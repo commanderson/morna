@@ -22,15 +22,15 @@ def magic_sql_write(cursor, sample_id, tf_idf_score):
     #also, standard float precision warnings apply.
     cursor.execute("INSERT INTO sample_%d VALUES (%f)"
                     % (sample_id,tf_idf_score))
-    
-def uniquify(seq):
-    """Returns a version of list seq with duplicate elements reduced to unique
-        seq: a list
-        Return value: a list
+
+def dot_product(v1,v2):
+    """returns the dot product of two lists
+        v1: first vector, of equal length to v2
+        v2: second vector, of equal length to v1
+        Return value: float equal to
+        v1[0]*v2[0] + v1[1]*v2[1] + ... v1[n]*v2[n]
     """
-    seen = set()
-    seen_add = seen.add
-    return [x for x in seq if x not in seen and not seen_add(x)]
+    return sum([i*j for (i, j) in zip(v1, v2)])
     
 def norm_log(input):
     """ Returns natural log of input unless input is 0;
@@ -145,7 +145,7 @@ with gzip.open(args.file) as junc_file_handle, open(
                                          samples_junction_coverages]
                                      
             num_samples_with_junction = len(samples_junction_coverages)
-            idf_value = log((float(num_samples + 1)/num_samples_with_junction))
+            idf_value = log((float(num_samples)/num_samples_with_junction))
         
             first_one = True    #must format commas appropriately!
             for j, coverage in enumerate(samples_junction_coverages):
