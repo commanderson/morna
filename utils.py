@@ -5,6 +5,7 @@ utils.py
 Helper functions for morna; many are taken from Rail-RNA.
 """
 from argparse import HelpFormatter
+import sys
 
 def help_formatter(prog):
     """ So formatter_class's max_help_position can be changed. """

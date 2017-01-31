@@ -46,7 +46,7 @@ class MornaIndex(AnnoyIndex):
                                                 [0.0 for _ in xrange(dim)]
                                         )
         # Dimension of low-dimensional feature feature vector
-        self.dim = self.dimension_count = 3000
+        self.dim = self.dimension_count = dim
         # Minimum number of samples in which junction should be found
         self.sample_threshold = sample_threshold
 
@@ -99,7 +99,7 @@ class MornaIndex(AnnoyIndex):
                 ).format(i+1)
         else:
             for sample in self.sample_feature_matrix:
-                self.add_item(sample, self.sample_feature_matrix)
+                self.add_item(sample, self.sample_feature_matrix[sample])
         super(MornaIndex, self).build(n_trees)
 
     def save(self, basename):
@@ -108,6 +108,7 @@ class MornaIndex(AnnoyIndex):
         # Write total number of samples
         with open(basename + ".stats.mor", 'w') as stats_stream:
             print >>stats_stream, str(self.sample_count)
+            print >>stats_stream, str(self.dim)
         # Pickle sample frequency dictionary
         with open(basename + ".freq.mor", 'w') as pickle_stream:
             cPickle.dump(self.sample_frequencies, pickle_stream,
@@ -121,25 +122,31 @@ class MornaSearch(object):
         number of samples in which it's found (basename.freq.mor), and
         a stats file including the total number of samples (basename.stats.mor).
     """
-    def __init__(self, basename, dim=3000):
+    def __init__(self, basename):
         # Load AnnoyIndex with AnnoyIndex class, not MornaIndex
-        self.dim = self.dimension_count = dim
-        self.query_sample = [0.0 for _ in xrange(dim)]
-        
-        self.annoy_index = AnnoyIndex(dim)
-        self.annoy_index.load(basename + '.annoy.mor')
+        #self.dim = self.dimension_count = dim
         
         with open(basename + ".stats.mor") as stats_stream:
             self.sample_count = int(stats_stream.readline())
+            self.dim = int(stats_stream.readline())
+        
+        self.query_sample = [0.0 for _ in xrange(self.dim)]
+        
+        self.annoy_index = AnnoyIndex(self.dim)
+        self.annoy_index.load(basename + '.annoy.mor')
         
         with open(basename + ".freq.mor") as pickle_stream:
             self.sample_frequencies = cPickle.load(pickle_stream)
     
     def update_query(self, junction):
         hashable_junction = ' '.join(map(str, junction[:3]))
-            
-        idf_value = log(float(self.sample_count)
-                        / self.sample_frequencies[hashable_junction])
+        
+        if (self.sample_frequencies[hashable_junction] == 0.0):
+            idf_value = 0
+        else:
+            idf_value = log(float(self.sample_count)
+                            / self.sample_frequencies[hashable_junction])
+
         hash_value = mmh3.hash(hashable_junction)
         multiplier = (-1 if hash_value < 0 else 1)
         self.query_sample[hash_value % self.dim] += (
@@ -149,7 +156,7 @@ class MornaSearch(object):
         
             
     def search_nn(self, num_neighbors, search_k, include_distances=True):
-        print annoy_index.get_nns_by_vector(
+        print self.annoy_index.get_nns_by_vector(
                                             [feature for feature in
                                              self.query_sample], 
                                              num_neighbors,
@@ -245,7 +252,8 @@ if __name__ == '__main__':
                     for i, line in enumerate(introp_file_handle):
                         samples.update(line.split('\t')[-2].split(','))
             args.sample_count = len(samples)
-            print '\nThere are {} samples.'.format(args.sample_count)
+            if args.verbose:
+                print '\nThere are {} samples.'.format(args.sample_count)
         morna_index = MornaIndex(args.sample_count, dim=args.features,
                                     sample_threshold=args.sample_threshold)
         with gzip.open(args.intropolis) as introp_file_handle:
@@ -283,7 +291,7 @@ if __name__ == '__main__':
             junction_generator = junctions_from_raw_stream(sys.stdin)
         
         
-        searcher = MornaSearch(dim=args.features, basename=args.basename) 
+        searcher = MornaSearch(basename=args.basename) 
 
         if args.verbose:
             for i, junction in enumerate(junction_generator):
@@ -293,8 +301,6 @@ if __name__ == '__main__':
         else:
             for i, junction in enumerate(junction_generator):
                 searcher.update_query(junction)
-                
-        print >>sys.stderr,('')
-        annoy_index = AnnoyIndex(args.features)
-        annoy_index.load(args.annoy_idx)
-        search_nn(500, args.search_k, include_distances=True)
+        if args.verbose:
+            print >>sys.stderr,('')
+        searcher.search_nn(10, args.search_k, include_distances=True)
