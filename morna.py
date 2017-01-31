@@ -69,7 +69,7 @@ class MornaIndex(AnnoyIndex):
         hashed_value = mmh3.hash(junction)
         multiplier = (-1 if hashed_value < 0 else 1)
         hashed_value = hashed_value % self.dim
-        idf_value = log(float(self.sample_count) 
+        idf_value = log(float(self.sample_count + 1) 
                         / self.sample_frequencies[junction]
                         )
         for sample, coverage in zip(samples, coverages):
@@ -240,10 +240,10 @@ if __name__ == '__main__':
                                 str(i) + " lines into sample count, " 
                                 + str(len(samples)) + " samples so far.\r"
                             )
-                        samples.update(line.rpartition('\t')[-1].split(','))
+                        samples.update(line.split('\t')[-2].split(','))
                 else:
                     for i, line in enumerate(introp_file_handle):
-                        samples.update(line.rpartition('\t')[-1].split(','))
+                        samples.update(line.split('\t')[-2].split(','))
             args.sample_count = len(samples)
             print '\nThere are {} samples.'.format(args.sample_count)
         morna_index = MornaIndex(args.sample_count, dim=args.features,

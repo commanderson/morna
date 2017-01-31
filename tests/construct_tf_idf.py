@@ -112,62 +112,90 @@ with gzip.open(args.file) as introp_file_handle:
                     str(i) + " lines into sample count, " 
                     + str(len(all_samples)) + " samples so far.\r"
                 )
-            all_samples.update(line.rpartition('\t')[-1].split(','))
+            all_samples.update([int(num) for num 
+                                in(line.split('\t')[-2].split(','))])
     else:
         for i, line in enumerate(introp_file_handle):
-            all_samples.update(line.rpartition('\t')[-1].split(','))
+            all_samples.update([int(num) for num 
+                                in(line.split('\t')[-2].split(','))])
 num_samples = len(all_samples)
-print '\nThere are {} samples.'.format(args.sample_count)
-
+if args.verbose:
+    print '\nThere are {} samples.'.format(num_samples)
+    print(all_samples)
 ###########################################
 #pass2: create intropolis of tf-idf scores#
 ###########################################
 
 tf_idf_file = args.file + ".tf_idf"
 
-with gzip.open(args.file) as junc_file_handle, \
-     open(tf_idf_file, 'w') as tf_idf_file_handle:
+with gzip.open(args.file) as junc_file_handle, open(
+        tf_idf_file, 'w') as tf_idf_file_handle:
     if args.verbose:
-    for i, introp_line in enumerate(junc_file_handle):
-        if (i % 100 == 0):
-            print( str(i) + " lines into 2nd pass (tf-idf) writing")
-        introp_line_pieces = introp_line.split()
-        new_line_pieces = introp_line_pieces[:6]
+        for i, introp_line in enumerate(junc_file_handle):
+            if (i % 100 == 0):
+                print( str(i) + " lines into 2nd pass (tf-idf) writing")
+            introp_line_pieces = introp_line.split()
+            new_line_pieces = introp_line_pieces[:6]
         
-        #This time we will write the non tf-idf score line pieces first
-        tf_idf_file_handle.write("\t".join(new_line_pieces))
+            #This time we will write the non tf-idf score line pieces first
+            tf_idf_file_handle.write("\t".join(new_line_pieces))
         
-        samples_junction_coverages = (introp_line_pieces[7].split(','))
-        samples_junction_coverages = [int(num) for num in
-                                     samples_junction_coverages]
+            samples_junction_coverages = (introp_line_pieces[7].split(','))
+            samples_junction_coverages = [int(num) for num in
+                                         samples_junction_coverages]
                                      
-        num_samples_with_junction = len(samples_junction_coverages)
-        idf_value = log((num_samples/num_samples_with_junction))
+            num_samples_with_junction = len(samples_junction_coverages)
+            idf_value = log((float(num_samples + 1)/num_samples_with_junction))
         
-        first_one = True    #must format commas appropriately!
-        for j, coverage in enumerate(samples_junction_coverages):
-            tf_idf_score = ((coverage) * idf_value)
-            if (first_one):   
-                tf_idf_file_handle.write("\t" + str(tf_idf_score))
-                first_one = False
-            else:
-                tf_idf_file_handle.write("," + str(tf_idf_score))
-        tf_idf_file_handle.write("\n")
+            first_one = True    #must format commas appropriately!
+            for j, coverage in enumerate(samples_junction_coverages):
+                tf_idf_score = ((coverage) * idf_value)
+                if (first_one):   
+                    tf_idf_file_handle.write("\t" + str(tf_idf_score))
+                    first_one = False
+                else:
+                    tf_idf_file_handle.write("," + str(tf_idf_score))
+            tf_idf_file_handle.write("\n")
+    else:
+        for i, introp_line in enumerate(junc_file_handle):
+            introp_line_pieces = introp_line.split()
+            new_line_pieces = introp_line_pieces[:6]
         
-chosen_sample_ids = random.sample(unique_samples,3)
+            #This time we will write the non tf-idf score line pieces first
+            tf_idf_file_handle.write("\t".join(new_line_pieces))
+        
+            samples_junction_coverages = (introp_line_pieces[7].split(','))
+            samples_junction_coverages = [int(num) for num in
+                                         samples_junction_coverages]
+                                     
+            num_samples_with_junction = len(samples_junction_coverages)
+            idf_value = log((float(num_samples + 1)/num_samples_with_junction))
+        
+            first_one = True    #must format commas appropriately!
+            for j, coverage in enumerate(samples_junction_coverages):
+                tf_idf_score = ((coverage) * idf_value)
+                if (first_one):   
+                    tf_idf_file_handle.write("\t" + str(tf_idf_score))
+                    first_one = False
+                else:
+                    tf_idf_file_handle.write("," + str(tf_idf_score))
+            tf_idf_file_handle.write("\n")
+        
+chosen_sample_ids = random.sample(all_samples,3)
 print("randomly chosen sample ids are: " + str(chosen_sample_ids))
 
 # Each chosen sample id will get its own table in a sqlite db
 #We will treat these like lists onto which we can 
 #add a tf-idf score for each junction.
 
-
+if args.verbose:
+    print("Now writing " + str(len(all_samples)) + " sample tables.")
 ##TODO: Make the db files temporary files
 conn = sqlite3.connect('tf_idf_temp.db')
 cursor = conn.cursor()
 if args.verbose:
     for i,sample_id in enumerate(all_samples):
-        print("Creating table number " + str(i) + ", sample " + str(sample_id)
+        print("Creating table number " + str(i) + ", sample " + str(sample_id))
         #I don't think we worry about injection, but if we do I'm
         #currently assuming our int conversion prevents it 
         cursor.execute("CREATE TABLE sample_%d (tf_ifd float)" 
@@ -191,17 +219,21 @@ with gzip.open(args.file) as junc_file_handle, \
             tf_idfs_of_samples = ((score_line.split())[6]).split(',')
             tf_idfs_of_samples = [float(num) for num in tf_idfs_of_samples]
         
-                
             for j, sample_id in enumerate(all_samples):
                 if sample_id in samples_with_junction:
                     #print("SPECIAL")
-                    magic_sql_write(cursor, sample_id, tf_idfs_of_samples[j])
+                    idx = match(samples_with_junction, sample_id)
+                    magic_sql_write(cursor, sample_id,
+                     tf_idfs_of_samples[
+                                        match(samples_with_junction, sample_id)
+                                        ]
+                                    )
                 else:
                     #print("DEFAULT")
                     magic_sql_write(cursor, sample_id, 0.0)
             i+=1
-        else:
-            for introp_line, score_line in izip(junc_file_handle, 
+    else:
+        for introp_line, score_line in izip(junc_file_handle, 
                                             tf_idf_file_handle):
             samples_with_junction = ((introp_line.split())[6]).split(',')
             samples_with_junction = [int(num) for num in samples_with_junction]
@@ -213,20 +245,25 @@ with gzip.open(args.file) as junc_file_handle, \
             for j, sample_id in enumerate(all_samples):
                 if sample_id in samples_with_junction:
                     #print("SPECIAL")
-                    magic_sql_write(cursor, sample_id, tf_idfs_of_samples[j])
+                    idx = match(samples_with_junction, sample_id)
+                    magic_sql_write(cursor, sample_id,
+                     tf_idfs_of_samples[
+                                        match(samples_with_junction, sample_id)
+                                        ]
+                                    )
                 else:
                     #print("DEFAULT")
                     magic_sql_write(cursor, sample_id, 0.0)
             i+=1
 conn.commit()
-conn.close()
-    
-for sample_id in chosen_sample_ids:
+
+for sample_id in all_samples:
     print("Contents of sample " + str(sample_id))
     for row in cursor.execute(
-    "SELECT * FROM sample_%d ORDER BY ROWID ASC LIMIT 1" %sample_id):
+    #"SELECT * FROM sample_%d ORDER BY ROWID ASC LIMIT 1" %sample_id):
+    "SELECT * FROM sample_%d ORDER BY ROWID ASC" %sample_id):
         print row
-        
+conn.close()        
 #for sample_id in chosen_sample_ids:
 #    cursor.execute("DROP TABLE sample_%d" %sample_id)
     
