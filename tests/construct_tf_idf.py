@@ -90,6 +90,11 @@ parser.add_argument('-v', '--verbose', action='store_const',
             default=False,
             help='be talkative'
         )
+parser.add_argument('-o', '--output', metavar='<str>', type=str,
+            required=False,
+            default="tf_idf_temp",
+            help='output file basename'
+        )
 
 args = parser.parse_args()
 junctions_file = args.file
@@ -191,7 +196,7 @@ print("randomly chosen sample ids are: " + str(chosen_sample_ids))
 if args.verbose:
     print("Now writing " + str(len(all_samples)) + " sample tables.")
 ##TODO: Make the db files temporary files
-conn = sqlite3.connect('tf_idf_temp.db')
+conn = sqlite3.connect(args.output + '.db')
 cursor = conn.cursor()
 if args.verbose:
     for i,sample_id in enumerate(all_samples):
