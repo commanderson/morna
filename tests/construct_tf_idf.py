@@ -32,7 +32,7 @@ def dot_product(v1, v2):
     """
     return sum([float(i)*j for (i, j) in zip(v1, v2)])
     
-def euclidean_norm(v1)
+def euclidean_norm(v1):
     """returns the euclidean norm of a vector
         v1: first vector, of equal length to v2
         Return value: float equal to
