@@ -252,8 +252,8 @@ if __name__ == '__main__':
                     for i, line in enumerate(introp_file_handle):
                         samples.update(line.split('\t')[-2].split(','))
             args.sample_count = len(samples)
-            if args.verbose:
-                print '\nThere are {} samples.'.format(args.sample_count)
+        if args.verbose:
+            print '\nThere are {} samples.'.format(args.sample_count)
         morna_index = MornaIndex(args.sample_count, dim=args.features,
                                     sample_threshold=args.sample_threshold)
         with gzip.open(args.intropolis) as introp_file_handle:
