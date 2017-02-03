@@ -201,7 +201,7 @@ if __name__ == '__main__':
         )
     search_parser.add_argument('--search-k', metavar='<int>', type=int,
             required=False,
-            default=None,
+            default=100,
             help='a larger value makes for more accurate search'
         )
     search_parser.add_argument('-f', '--format', metavar='<choice>', type=str,
@@ -303,4 +303,4 @@ if __name__ == '__main__':
                 searcher.update_query(junction)
         if args.verbose:
             print >>sys.stderr,('')
-        searcher.search_nn(10, args.search_k, include_distances=True)
+        searcher.search_nn(20, args.search_k, include_distances=True)

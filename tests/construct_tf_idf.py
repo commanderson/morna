@@ -146,7 +146,7 @@ with gzip.open(args.file) as junc_file_handle, open(
     if args.verbose:
         for i, introp_line in enumerate(junc_file_handle):
             if (i % 100 == 0):
-                print( str(i) + " lines into 2nd pass (tf-idf) writing")
+                sys.stdout.write( str(i) + " lines into 2nd pass (tf-idf) writing\r")
             introp_line_pieces = introp_line.split()
             new_line_pieces = introp_line_pieces[:6]
         
@@ -225,7 +225,7 @@ with gzip.open(args.file) as junc_file_handle, \
         for introp_line, score_line in izip(junc_file_handle, 
                                             tf_idf_file_handle):
             if (i % 100 == 0):
-                print( str(i) + " lines into 3rd pass (inversion into sql)")
+                sys.stdout.write( str(i) + " lines into 3rd pass (inversion into sql)\r")
             samples_with_junction = ((introp_line.split())[6]).split(',')
             samples_with_junction = [int(num) for num in samples_with_junction]
         

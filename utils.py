@@ -248,7 +248,7 @@ def junctions_from_bed_stream(bed_stream):
         # Final block characterizes junction on right side of junction
         junctions.append(chrom_start + int(block_starts[-1]))
         for i in xrange(len(junctions)/2):
-            yield (chrom, junctions[2*i]+1, junctions[2*i+1]+1, coverage)
+            yield (chrom, junctions[2*i]+1, junctions[2*i+1], coverage)
 
 def junctions_from_sam_stream(sam_stream):
     """ Generates junctions from BED stream
