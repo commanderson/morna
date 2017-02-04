@@ -37,6 +37,17 @@ parser.add_argument('-d', '--database', metavar='<str>', type=str,
             required=True,
             help=('path to .db file created by construc_tf_idf.py')
         )
+        
+parser.add_argument('-q', '--query', metavar='<str>', type=str,
+            required=True,
+            help=('path to junctions file for querying the db')
+        )
+
+parser.add_argument('-f', '--format', metavar='<choice>', type=str,
+            required=False,
+            default='sam',
+            help=('format of query; one of {sam, bed, raw}')
+        )
 parser.add_argument('-v', '--verbose', action='store_const',
             const=True,
             default=False,
@@ -47,8 +58,21 @@ parser.add_argument('-o', '--output', metavar='<str>', type=str,
             default="query_results",
             help='output file name'
         )
+
+args = parser.parse_args()
         
 conn = sqlite3.connect(args.database)
 c = conn.cursor()
-for row in c.execute("SELECT name FROM sqlite_master WHERE type='table';"):
-    print row
+c2 = conn.cursor()
+for table_line in c.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' ORDER BY ROWID ASC;"
+        ):
+    table_id = table_line[0].strip("()',")
+    print("Contents of table " + table_id)
+    vector=[]
+    for row in c2.execute(
+    #"SELECT * FROM sample_%d ORDER BY ROWID ASC LIMIT 1" %sample_id):
+        "SELECT * FROM %s ORDER BY ROWID ASC" %table_id
+        ):
+        vector.append(float(row[0].strip("()',")))
+conn.close()      
