@@ -81,4 +81,4 @@ with gzip.open(intropolis_like_file) as introp_handle,\
     
         queryfile_handle.write("\t".join(line_pieces[:3]) + "\t" 
                                 + str(coverage) + "\n")
-print()
+print('')

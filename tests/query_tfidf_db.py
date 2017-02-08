@@ -60,19 +60,32 @@ parser.add_argument('-o', '--output', metavar='<str>', type=str,
         )
 
 args = parser.parse_args()
-        
+
 conn = sqlite3.connect(args.database)
 c = conn.cursor()
 c2 = conn.cursor()
+
+
+query_vector = []#TODO: actually take in query vector
+
+top_20_sims = [[-2] for _ in xrange(20)]
+top_20_vectors = [[] for _ in xrange(20)]
 for table_line in c.execute(
         "SELECT name FROM sqlite_master WHERE type='table' ORDER BY ROWID ASC;"
         ):
     table_id = table_line[0].strip("()',")
     print("Contents of table " + table_id)
-    vector=[]
+    table_vector=[]
     for row in c2.execute(
     #"SELECT * FROM sample_%d ORDER BY ROWID ASC LIMIT 1" %sample_id):
         "SELECT * FROM %s ORDER BY ROWID ASC" %table_id
         ):
-        vector.append(float(row[0].strip("()',")))
+        table_vector.append(float(row[0].strip("()',")))
+    
+    #TODO: work this logic out
+    cosine_sim = (dot_product(table_vector, query_vector) /                  
+        (euclidean_norm(table_vector) * euclidean_norm(vector))
+    if cosine_sim "belongs on the list!!":
+        #insert it into top_20_sims
+        #insert vector into corresponding place in top 20 vectors
 conn.close()      

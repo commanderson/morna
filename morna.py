@@ -103,6 +103,15 @@ class MornaIndex(AnnoyIndex):
         super(MornaIndex, self).build(n_trees)
 
     def save(self, basename):
+        """ Saves index information to hard disk in three files;
+            The annoy index as basename.annoy.mor,
+            the sample count and stats information as basename.stats.mor,
+            and the sample frequency dicitonary as basename.freq.mor
+
+            basename: path used as base of the filename for each saved file
+            
+            No return value.
+        """
         # Save Annoy index first
         super(MornaIndex, self).save(basename + '.annoy.mor')
         # Write total number of samples
@@ -139,6 +148,13 @@ class MornaSearch(object):
             self.sample_frequencies = cPickle.load(pickle_stream)
     
     def update_query(self, junction):
+        """ Updates the query with a junction in an additive fashion
+
+            junction: A junction with which to update the query,
+            in format 'chromosome start end coverage'
+            
+            No return value.
+        """
         hashable_junction = ' '.join(map(str, junction[:3]))
         
         if (self.sample_frequencies[hashable_junction] == 0.0):
@@ -156,13 +172,35 @@ class MornaSearch(object):
         
             
     def search_nn(self, num_neighbors, search_k, include_distances=True):
-        print self.annoy_index.get_nns_by_vector(
-                                            [feature for feature in
-                                             self.query_sample], 
-                                             num_neighbors,
-                                             search_k,
-                                             include_distances
-                                            )
+        """ Uses the current query_sample to query the annoy index
+
+            num_neighbors: an integer number of nearest neighbors to return
+            search_k: an integer number of nodes to check while searching 
+            the trees in the index; larger values lead to slower, more accurate 
+            searches.
+            include_distances: bolean indicator - should the distance to each 
+            neighbor be included along with the sample id?
+            
+            Return value: a list of the sample ids of the neareast 
+            neighbors of the query, optionally joined in a tuple by 
+            a corresponding list of distances.
+        """
+        if include_distances:
+            return self.annoy_index.get_nns_by_vector(
+                                                 [feature for feature in
+                                                 self.query_sample], 
+                                                 num_neighbors,
+                                                 search_k,
+                                                 include_distances
+                                                )
+        else:
+            return [self.annoy_index.get_nns_by_vector(
+                                                 [feature for feature in
+                                                 self.query_sample], 
+                                                 num_neighbors,
+                                                 search_k,
+                                                 include_distances
+                                                )]
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=_help_intro, 
@@ -232,6 +270,18 @@ if __name__ == '__main__':
             default=False,
             help='be talkative'
         )
+    search_parser.add_argument('-c','--converge', metavar='<int>', type=int,
+            required=False,
+            default=None,
+            help=('attempt to converge on a solution with concordance equal'
+                  'to the given argument as a percentage (truncated to 0-100)')
+        )
+    search_parser.add_argument('-m', '--metafile',  metavar='<str>', type=str,
+            required=False,
+            default=None,
+            help=('path to metadata file with sample index in first column'
+                  'and other keywords in other columns, whitespace delimited')
+        )
     args = parser.parse_args()
 
     if hasattr(args, 'intropolis'):
@@ -292,15 +342,70 @@ if __name__ == '__main__':
         
         
         searcher = MornaSearch(basename=args.basename) 
-
-        if args.verbose:
-            for i, junction in enumerate(junction_generator):
-                if (i % 100 == 0):
-                    sys.stderr.write( str(i) + " junctions into query sample\r")
-                searcher.update_query(junction)
+        
+        if hasattr(args, 'converge'):
+        #TODO: Move converge search to searcher class!
+            threshold = args.converge
+            backoff = 100
+            old_results = []
+            if args.verbose:
+                for i, junction in enumerate(junction_generator):
+                    if (i % 100 == 0):
+                        sys.stderr.write( str(i) 
+                                         + " junctions into query sample\r")
+                    searcher.update_query(junction)
+                    if (i == backoff):
+                        backoff += backoff
+                        sys.stderr.write("\n")
+                        results = (searcher.search_nn(20, args.search_k,
+                                    include_distances=True))
+                        shared = 0
+                        for result in results[0]:
+                            if (result in old_results):
+                                shared+=1
+                        sys.stderr.write(str(shared) + 
+                                    "Shared junctions with old results")
+                        if (float(shared)/len(results[0]) >= threshold/100.0):
+                            sys.stderr.write("Converged after " + str(i) 
+                                                + "junctions.\n")
+                            print results
+                            quit()
+                        else:
+                            sys.stderr.write("Not converged after " + str(i) 
+                                                + "junctions.\n")
+                            old_results = results[0]
+                sys.stderr.write("No convergence, but here's results:")
+                print results
+            else:
+                for i, junction in enumerate(junction_generator):
+                    searcher.update_query(junction)
+            if args.verbose:
+                sys.stderr.write("\n")
+            results = (searcher.search_nn(20, args.search_k,
+                       include_distances=True))
+            
         else:
-            for i, junction in enumerate(junction_generator):
-                searcher.update_query(junction)
-        if args.verbose:
-            print >>sys.stderr,('')
-        searcher.search_nn(20, args.search_k, include_distances=True)
+            if args.verbose:
+                for i, junction in enumerate(junction_generator):
+                    if (i % 100 == 0):
+                        sys.stderr.write( str(i) 
+                                         + " junctions into query sample\r")
+                    searcher.update_query(junction)
+            else:
+                for i, junction in enumerate(junction_generator):
+                    searcher.update_query(junction)
+            if args.verbose:
+                sys.stderr.write("\n")
+            results = (searcher.search_nn(20, args.search_k,
+                       include_distances=True))
+            if args.metafile:
+                with open(args.metafile) as metafile_handle:
+                    for i,line in enumerate(metafile_handle):
+                        if (i == 0):
+                            continue
+                        print(line.partition(' '))
+                        #print(results[0])
+                        if int(line.partition(' ')[0]) in results[0]:
+                            print line 
+            else:
+                print results
