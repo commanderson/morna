@@ -13,6 +13,7 @@ import bisect
 import gzip
 import cPickle
 import mmh3
+import sqlite3
 import sys
 from annoy import AnnoyIndex
 from collections import defaultdict
@@ -27,15 +28,18 @@ patterns similar to those in a query sample.
 class MornaIndex(AnnoyIndex):
     """ Augments AnnoyIndex to accommodate parameters needed by morna
 
-        Three index files are written when invoking save(): an Annoy index
+        Four index files are written when invoking save(): an Annoy index
         (basename.annoy.mor), a dictionary that maps each junction to the 
-        number of samples in which it's found (basename.freq.mor), and
-        a stats file including the total number of samples.
+        number of samples in which it's found (basename.freq.mor), a stats 
+        file including the total number of samples (basename.stats.mor),
+        and a sqlite database containing metadata info associated with 
+        sample ids.
 
         See https://github.com/spotify/annoy/blob/master/annoy/__init__.py
         for original class. 
     """
-    def __init__(self, sample_count, dim=3000, sample_threshold=100):
+    def __init__(self, sample_count, dim=3000, 
+                 sample_threshold=100, metafile = None):
         super(MornaIndex, self).__init__(dim, metric='angular')
         # Store the total number of samples represented in the index
         self.sample_count = sample_count
@@ -45,11 +49,13 @@ class MornaIndex(AnnoyIndex):
         self.sample_feature_matrix = defaultdict(lambda:
                                                 [0.0 for _ in xrange(dim)]
                                         )
+        #Store filename of metadata database
+        self.metafile = metafile
         # Dimension of low-dimensional feature feature vector
         self.dim = self.dimension_count = dim
         # Minimum number of samples in which junction should be found
         self.sample_threshold = sample_threshold
-
+    
     def add_junction(self, junction, samples, coverages):
         """ Adds contributions of a single junction to feature vectors
 
@@ -106,7 +112,8 @@ class MornaIndex(AnnoyIndex):
         """ Saves index information to hard disk in three files;
             The annoy index as basename.annoy.mor,
             the sample count and stats information as basename.stats.mor,
-            and the sample frequency dicitonary as basename.freq.mor
+            the sample frequency dicitonary as basename.freq.mor,
+            and the metadata from metafile as basename.meta.mor
 
             basename: path used as base of the filename for each saved file
             
@@ -122,6 +129,21 @@ class MornaIndex(AnnoyIndex):
         with open(basename + ".freq.mor", 'w') as pickle_stream:
             cPickle.dump(self.sample_frequencies, pickle_stream,
                          cPickle.HIGHEST_PROTOCOL)
+        #Parse file at metafaile and save it into a metadata db
+        #Metafile format (whitespace separated)
+        #First column: sample id.
+        #Any number of additional columns: keywords describing sample,
+        #separated by whitespace.
+        conn = sqlite3.connect(basename + '.meta.mor')
+        cursor = conn.cursor()
+        cursor.execute("CREATE TABLE metadata (sample_id real, keywords text)" )
+        print self.metafile
+        with open(self.metafile) as metafile_handle:
+            for i,line in enumerate(metafile_handle):
+                cursor.execute("INSERT INTO metadata VALUES ('%s','%s')"
+                    % (line.split(None,1)[0],line.split(None,1)[1]))
+        conn.commit()
+        conn.close()
 
 class MornaSearch(object):
     """A class for searching our morna indexes, 
@@ -276,7 +298,7 @@ if __name__ == '__main__':
             help=('attempt to converge on a solution with concordance equal'
                   'to the given argument as a percentage (truncated to 0-100)')
         )
-    search_parser.add_argument('-m', '--metafile',  metavar='<str>', type=str,
+    index_parser.add_argument('-m', '--metafile',  metavar='<str>', type=str,
             required=False,
             default=None,
             help=('path to metadata file with sample index in first column'
@@ -304,8 +326,16 @@ if __name__ == '__main__':
             args.sample_count = len(samples)
         if args.verbose:
             print '\nThere are {} samples.'.format(args.sample_count)
+        
+        if hasattr(args, 'metafile'):
+            with open(args.metafile) as metafile_handle:
+                    for i,line in enumerate(metafile_handle):
+                        if (i == 0):
+                            continue
+            
         morna_index = MornaIndex(args.sample_count, dim=args.features,
-                                    sample_threshold=args.sample_threshold)
+                                    sample_threshold=args.sample_threshold, 
+                                    metafile=args.metafile)
         with gzip.open(args.intropolis) as introp_file_handle:
             if args.verbose:
                 for i, line in enumerate(introp_file_handle):
@@ -344,7 +374,6 @@ if __name__ == '__main__':
         searcher = MornaSearch(basename=args.basename) 
         
         if hasattr(args, 'converge'):
-        #TODO: Move converge search to searcher class!
             threshold = args.converge
             backoff = 100
             old_results = []
