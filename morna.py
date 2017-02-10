@@ -292,6 +292,16 @@ if __name__ == '__main__':
             default=False,
             help='be talkative'
         )
+    search_parser.add_argument('-d', '--distances', action='store_const',
+            const=True,
+            default=False,
+            help='include distances to nearest neighbors'
+        )
+    search_parser.add_argument('-m', '--metadata', action='store_const',
+            const=True,
+            default=False,
+            help='display results mapped to metadata'
+        )
     search_parser.add_argument('-c','--converge', metavar='<int>', type=int,
             required=False,
             default=None,
@@ -373,7 +383,7 @@ if __name__ == '__main__':
         
         searcher = MornaSearch(basename=args.basename) 
         
-        if hasattr(args, 'converge'):
+        if args.converge:
             threshold = args.converge
             backoff = 100
             old_results = []
@@ -387,7 +397,7 @@ if __name__ == '__main__':
                         backoff += backoff
                         sys.stderr.write("\n")
                         results = (searcher.search_nn(20, args.search_k,
-                                    include_distances=True))
+                                    include_distances=args.distances))
                         shared = 0
                         for result in results[0]:
                             if (result in old_results):
@@ -411,7 +421,7 @@ if __name__ == '__main__':
             if args.verbose:
                 sys.stderr.write("\n")
             results = (searcher.search_nn(20, args.search_k,
-                       include_distances=True))
+                       include_distances=args.distances))
             
         else:
             if args.verbose:
@@ -426,15 +436,16 @@ if __name__ == '__main__':
             if args.verbose:
                 sys.stderr.write("\n")
             results = (searcher.search_nn(20, args.search_k,
-                       include_distances=True))
-            if args.metafile:
-                with open(args.metafile) as metafile_handle:
-                    for i,line in enumerate(metafile_handle):
-                        if (i == 0):
-                            continue
-                        print(line.partition(' '))
-                        #print(results[0])
-                        if int(line.partition(' ')[0]) in results[0]:
-                            print line 
+                       include_distances=args.distances))
+            if args.metadata:
+                conn = sqlite3.connect(args.basename + '.meta.mor')
+                cursor = conn.cursor()
+                for sample_id in results[0]:
+                    print sample_id
+                    cursor.execute(
+                        'SELECT * FROM metadata WHERE sample_id=?',
+                                                     (str(sample_id),))
+                    print cursor.fetchone()
+                print "lo, I completeth"
             else:
                 print results
