@@ -129,21 +129,34 @@ class MornaIndex(AnnoyIndex):
         with open(basename + ".freq.mor", 'w') as pickle_stream:
             cPickle.dump(self.sample_frequencies, pickle_stream,
                          cPickle.HIGHEST_PROTOCOL)
-        #Parse file at metafaile and save it into a metadata db
-        #Metafile format (whitespace separated)
-        #First column: sample id.
-        #Any number of additional columns: keywords describing sample,
-        #separated by whitespace.
-        conn = sqlite3.connect(basename + '.meta.mor')
-        cursor = conn.cursor()
-        cursor.execute("CREATE TABLE metadata (sample_id real, keywords text)" )
-        print self.metafile
-        with open(self.metafile) as metafile_handle:
-            for i,line in enumerate(metafile_handle):
-                cursor.execute("INSERT INTO metadata VALUES ('%s','%s')"
-                    % (line.split(None,1)[0],line.split(None,1)[1]))
-        conn.commit()
-        conn.close()
+        if self.metafile:
+            #Parse file at metafaile and save it into a metadata db
+            #Metafile format (whitespace separated)
+            #First column: sample id.
+            #Any number of additional columns: keywords describing sample,
+            #separated by whitespace.
+            conn = sqlite3.connect(basename + '.meta.mor')
+            cursor = conn.cursor()
+        
+            #this next part catches if you are overwriting an old index db;
+            #in that case it drops the old table before proceeding
+            cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+            +" AND name='metadata'")
+            if cursor.fetchone():
+                cursor.execute("DROP TABLE metadata")
+        
+            cursor.execute(
+                       "CREATE TABLE metadata (sample_id real, keywords text)"
+                          )
+        
+            with open(self.metafile) as metafile_handle:
+                for i,line in enumerate(metafile_handle):
+                    print line
+                    cursor.execute("INSERT INTO metadata VALUES ('%s','%s')"
+                        % (line.split(None,1)[0],line.split(None,1)[1]))
+            conn.commit()
+            conn.close()
 
 class MornaSearch(object):
     """A class for searching our morna indexes, 
@@ -336,12 +349,6 @@ if __name__ == '__main__':
             args.sample_count = len(samples)
         if args.verbose:
             print '\nThere are {} samples.'.format(args.sample_count)
-        
-        if hasattr(args, 'metafile'):
-            with open(args.metafile) as metafile_handle:
-                    for i,line in enumerate(metafile_handle):
-                        if (i == 0):
-                            continue
             
         morna_index = MornaIndex(args.sample_count, dim=args.features,
                                     sample_threshold=args.sample_threshold, 
@@ -418,10 +425,20 @@ if __name__ == '__main__':
             else:
                 for i, junction in enumerate(junction_generator):
                     searcher.update_query(junction)
-            if args.verbose:
-                sys.stderr.write("\n")
-            results = (searcher.search_nn(20, args.search_k,
-                       include_distances=args.distances))
+                    if (i == backoff):
+                        backoff += backoff
+                        results = (searcher.search_nn(20, args.search_k,
+                                    include_distances=args.distances))
+                        shared = 0
+                        for result in results[0]:
+                            if (result in old_results):
+                                shared+=1
+                        if (float(shared)/len(results[0]) >= threshold/100.0):
+                            print results
+                            quit()
+                        else:
+                           old_results = results[0]
+                print results
             
         else:
             if args.verbose:
@@ -446,6 +463,5 @@ if __name__ == '__main__':
                         'SELECT * FROM metadata WHERE sample_id=?',
                                                      (str(sample_id),))
                     print cursor.fetchone()
-                print "lo, I completeth"
             else:
                 print results
