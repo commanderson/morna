@@ -169,6 +169,7 @@ class MornaSearch(object):
     def __init__(self, basename):
         # Load AnnoyIndex with AnnoyIndex class, not MornaIndex
         #self.dim = self.dimension_count = dim
+        self.basename = basename
         
         with open(basename + ".stats.mor") as stats_stream:
             self.sample_count = int(stats_stream.readline())
@@ -206,7 +207,8 @@ class MornaSearch(object):
         
         
             
-    def search_nn(self, num_neighbors, search_k, include_distances=True):
+    def search_nn(self, num_neighbors, search_k, 
+                    include_distances=True, meta_db=False):
         """ Uses the current query_sample to query the annoy index
 
             num_neighbors: an integer number of nearest neighbors to return
@@ -215,13 +217,16 @@ class MornaSearch(object):
             searches.
             include_distances: bolean indicator - should the distance to each 
             neighbor be included along with the sample id?
+            metafile: bolean indicator - should an associated metadata db be 
+            used to add metadata keywords to results?
             
             Return value: a list of the sample ids of the neareast 
             neighbors of the query, optionally joined in a tuple by 
-            a corresponding list of distances.
+            a corresponding list of distances and/or a list of metadata keywords 
+            found in a supplied metadata db.
         """
         if include_distances:
-            return self.annoy_index.get_nns_by_vector(
+            results = self.annoy_index.get_nns_by_vector(
                                                  [feature for feature in
                                                  self.query_sample], 
                                                  num_neighbors,
@@ -229,13 +234,72 @@ class MornaSearch(object):
                                                  include_distances
                                                 )
         else:
-            return [self.annoy_index.get_nns_by_vector(
+            results = (self.annoy_index.get_nns_by_vector(
                                                  [feature for feature in
                                                  self.query_sample], 
                                                  num_neighbors,
                                                  search_k,
                                                  include_distances
-                                                )]
+                                                ),)
+        if meta_db:
+            meta_results = ['' for _ in results[0]]
+            conn = sqlite3.connect(self.basename + ".meta.mor")
+            cursor = conn.cursor()
+            for i,sample_id in enumerate(results[0]):
+                cursor.execute(
+                    'SELECT keywords FROM metadata WHERE sample_id=?',
+                                                 (str(sample_id),))
+                meta_results[i] = cursor.fetchone()
+            return results + (meta_results,)
+        else:
+            return results
+        
+    def search_member_n(self, id, num_neighbors, search_k, 
+                    include_distances=True, meta_db=False):
+        """ Uses a given element of the annoy index to query it
+
+            id: the id in the annoy index (corresponds to sample id) of the 
+            element to use as the query
+            num_neighbors: an integer number of nearest neighbors to return
+            search_k: an integer number of nodes to check while searching 
+            the trees in the index; larger values lead to slower, more accurate 
+            searches.
+            include_distances: bolean indicator - should the distance to each 
+            neighbor be included along with the sample id?
+            metafile: bolean indicator - should an associated metadata db be 
+            used to add metadata keywords to results?
+            
+            Return value: a list of the sample ids of the neareast 
+            neighbors of the query, optionally joined in a tuple by 
+            a corresponding list of distances and/or a list of metadata keywords 
+            found in a supplied metadata db.
+        """
+        if include_distances:
+            results = self.annoy_index.get_nns_by_item(
+                                                 id, 
+                                                 num_neighbors,
+                                                 search_k,
+                                                 include_distances
+                                                )
+        else:
+            results = (self.annoy_index.get_nns_by_item(
+                                                 id, 
+                                                 num_neighbors,
+                                                 search_k,
+                                                 include_distances
+                                                ),)
+        if meta_db:
+            meta_results = ['' for _ in results[0]]
+            conn = sqlite3.connect(self.basename + ".meta.mor")
+            cursor = conn.cursor()
+            for i,sample_id in enumerate(results[0]):
+                cursor.execute(
+                    'SELECT keywords FROM metadata WHERE sample_id=?',
+                                                 (str(sample_id),))
+                meta_results[i] = cursor.fetchone()
+            return results + (meta_results,)
+        else:
+            return results
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=_help_intro, 
@@ -321,6 +385,12 @@ if __name__ == '__main__':
             help=('attempt to converge on a solution with concordance equal'
                   'to the given argument as a percentage (truncated to 0-100)')
         )
+    search_parser.add_argument('-q','--query-id', metavar='<int>', type=int,
+            required=False,
+            default=None,
+            help=('attempt to converge on a solution with concordance equal'
+                  'to the given argument as a percentage (truncated to 0-100)')
+        )
     index_parser.add_argument('-m', '--metafile',  metavar='<str>', type=str,
             required=False,
             default=None,
@@ -377,7 +447,17 @@ if __name__ == '__main__':
         morna_index.build(args.n_trees, verbose=args.verbose)
         morna_index.save(args.basename)
     else:
+    
+        searcher = MornaSearch(basename=args.basename) 
         # Search
+        # The search by query id case cuts out early
+        if args.query_id:
+            results = searcher.search_member_n(args.query_id,20, args.search_k,
+                                    include_distances=args.distances,
+                                     meta_db = args.metadata)
+            print results
+            quit()
+        
         # Read BED or BAM
         if args.format == 'sam':
             junction_generator = junctions_from_sam_stream(sys.stdin)
@@ -388,9 +468,9 @@ if __name__ == '__main__':
             junction_generator = junctions_from_raw_stream(sys.stdin)
         
         
-        searcher = MornaSearch(basename=args.basename) 
         
-        if args.converge:
+        
+        if (args.converge) and (args.format == 'sam'):
             threshold = args.converge
             backoff = 100
             old_results = []
@@ -404,7 +484,8 @@ if __name__ == '__main__':
                         backoff += backoff
                         sys.stderr.write("\n")
                         results = (searcher.search_nn(20, args.search_k,
-                                    include_distances=args.distances))
+                                    include_distances=args.distances,
+                                     meta_db = args.metadata))
                         shared = 0
                         for result in results[0]:
                             if (result in old_results):
@@ -415,6 +496,7 @@ if __name__ == '__main__':
                             sys.stderr.write("Converged after " + str(i) 
                                                 + "junctions.\n")
                             print results
+                            
                             quit()
                         else:
                             sys.stderr.write("Not converged after " + str(i) 
@@ -428,7 +510,8 @@ if __name__ == '__main__':
                     if (i == backoff):
                         backoff += backoff
                         results = (searcher.search_nn(20, args.search_k,
-                                    include_distances=args.distances))
+                                    include_distances=args.distances,
+                                     meta_db = args.metadata))
                         shared = 0
                         for result in results[0]:
                             if (result in old_results):
@@ -450,18 +533,10 @@ if __name__ == '__main__':
             else:
                 for i, junction in enumerate(junction_generator):
                     searcher.update_query(junction)
+            
             if args.verbose:
                 sys.stderr.write("\n")
             results = (searcher.search_nn(20, args.search_k,
-                       include_distances=args.distances))
-            if args.metadata:
-                conn = sqlite3.connect(args.basename + '.meta.mor')
-                cursor = conn.cursor()
-                for sample_id in results[0]:
-                    print sample_id
-                    cursor.execute(
-                        'SELECT * FROM metadata WHERE sample_id=?',
-                                                     (str(sample_id),))
-                    print cursor.fetchone()
-            else:
-                print results
+                        include_distances=args.distances,
+                        meta_db = args.metadata))
+            print results
