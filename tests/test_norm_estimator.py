@@ -78,7 +78,7 @@ for loop in range(args.l):
 			#randint is inclusive; avoid index out of bounds!
 			##phi[spot][j] = random.choice((-1,1))
 			phi[spot,j] = random.choice((-1.0/sqrt(args.s),1.0/sqrt(args.s)))
-			print("just set [phi%d, %d] to %f" % (spot,j,phi[spot,j]))
+			#print("just set [phi%d, %d] to %f" % (spot,j,phi[spot,j]))
 			#phi[spot,j] = random.choice((-1,1))
 	#end
 
@@ -136,17 +136,17 @@ sys.stdout.write("\n")
 differences = [real_values[i]-estimations[i] for i,_ in enumerate(estimations)]	
 e2_rv_ratio = [estimations[i]/real_values[i] for i,_ in enumerate(estimations)]	
 #print estimations
-print("mean real value:" + str(numpy.mean(real_values)))
+print("Real value:" + str(numpy.mean(real_values)))
 #print("real value variance:" + str(numpy.var(real_values)))
-print("mean estimation:" + str(numpy.mean(estimations)))
-print("estimation variance:" + str(numpy.var(estimations)))
-print("mean difference:" + str(numpy.mean(differences)))
-print("difference variance:" + str(numpy.var(differences)))
-print("mean e2/rv ratio:" + str(numpy.mean(e2_rv_ratio)))
+print("Mean estimation:" + str(numpy.mean(estimations)))
+print("Estimation variance:" + str(numpy.var(estimations)))
+print("Mean difference:" + str(numpy.mean(differences)))
+print("Difference variance:" + str(numpy.var(differences)))
+print("Mean e2/rv ratio:" + str(numpy.mean(e2_rv_ratio)))
 
-print("xnorm:" + str(numpy.mean(xnorm)))
-print("mean ynorm:" + str(numpy.mean(ynorm)))
-print("ynorm variance:" + str(numpy.var(ynorm)))
+print("X-norm:" + str(numpy.mean(xnorm)))
+print("Mean y-norm:" + str(numpy.mean(ynorm)))
+print("Y-norm variance:" + str(numpy.var(ynorm)))
 
 #print("mean e1:" + str(numpy.mean(e1s)))
 #print("e1 variance:" + str(numpy.var(e1s)))
