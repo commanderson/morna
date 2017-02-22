@@ -13,6 +13,12 @@ parser.add_argument('-s', metavar='<int>', type=int,
             help='The number of blocks the hashing space is broken into'
         )
         
+parser.add_argument('-l', metavar='<int>', type=int,
+            required=False,
+            default=10,
+            help='The number of re-drawing loops of the projection matrix'
+        )
+        
 args = parser.parse_args()
 
 
@@ -53,14 +59,14 @@ xnorm = []
 ynorm = []
 blocksize = m/args.s
 
-for loop in range(100):
+for loop in range(args.l):
 	if not (loop % 100):
 		sys.stdout.write("Loop %d\r" % loop)
 	#%create m by d feature hashing matrix Phi
 	#Phi = zeros(m,d);
 	##phi = [ [0 for _ in range(d)] for _ in range(m)]
 	#want m rows and d columns
-	phi = numpy.matrix([0]*(d*m))
+	phi = numpy.matrix([0.0]*(d*m))
 	phi.shape = (m,d)
 	#for j=1:d
 
@@ -71,15 +77,19 @@ for loop in range(100):
 			spot=random.randint(block*blocksize,((block+1)*blocksize)-1) 
 			#randint is inclusive; avoid index out of bounds!
 			##phi[spot][j] = random.choice((-1,1))
-			#phi[spot,j] = random.choice((-1/sqrt(args.s),1/sqrt(args.s)))
-			phi[spot,j] = random.choice((-1,1))
+			phi[spot,j] = random.choice((-1.0/sqrt(args.s),1.0/sqrt(args.s)))
+			print("just set [phi%d, %d] to %f" % (spot,j,phi[spot,j]))
+			#phi[spot,j] = random.choice((-1,1))
 	#end
 
 	#% y is feature hashing of x.  norm(y,2) should be rougly equal to
 	#% norm(x,2)
 	#y = Phi*x;
-	y = numpy.matmul(phi,x)
+	y = phi * x
+	#y = numpy.matmul(phi,x)
+	#y=y/sqrt(args.s)
 	#print("norm of y is " + str(numpy.linalg.norm(y,2)))
+	#ynorm.append(numpy.linalg.norm(y,2)/sqrt(args.s))
 	ynorm.append(numpy.linalg.norm(y,2))
 	#print("norm of x is " + str(numpy.linalg.norm(x,2)))
 	xnorm.append(numpy.linalg.norm(x,2))
@@ -94,7 +104,7 @@ for loop in range(100):
 		z[0,column_num] = (phi[:,column_num].transpose() * y )
 	#e1 = norm(z(1:p,1),2)
 	e1 = numpy.linalg.norm(z[0,range(0,p)],2)
- 	e1 = e1/sqrt(args.s)
+ 	#e1 = e1/sqrt(args.s)
  	e1s.append(e1)
 	#%Thus using that norm(x,2)^2 = 1, 
 	#%I suggest exploring e2 = sqrt( max{0,e1^2 - p/m}) 
@@ -125,7 +135,7 @@ for loop in range(100):
 sys.stdout.write("\n")
 differences = [real_values[i]-estimations[i] for i,_ in enumerate(estimations)]	
 e2_rv_ratio = [estimations[i]/real_values[i] for i,_ in enumerate(estimations)]	
-print estimations
+#print estimations
 print("mean real value:" + str(numpy.mean(real_values)))
 #print("real value variance:" + str(numpy.var(real_values)))
 print("mean estimation:" + str(numpy.mean(estimations)))
@@ -134,9 +144,7 @@ print("mean difference:" + str(numpy.mean(differences)))
 print("difference variance:" + str(numpy.var(differences)))
 print("mean e2/rv ratio:" + str(numpy.mean(e2_rv_ratio)))
 
-print("mean xnorm:" + str(numpy.mean(xnorm)))
-print("xnorm variance:" + str(numpy.var(xnorm)))
-
+print("xnorm:" + str(numpy.mean(xnorm)))
 print("mean ynorm:" + str(numpy.mean(ynorm)))
 print("ynorm variance:" + str(numpy.var(ynorm)))
 
