@@ -20,6 +20,7 @@ random.seed(8675309)#set seed for reproducible results!
 d= 10000;  #%big dimension
 m=100;   #%small dimension
 p = 120;  #%p is dimension of subspace.  m < p < d
+#Note that the following settings are WAY TOO MUCH to handle:
 #d = 36868752 #the number of junctions in tcga; it's big!
 #m = 3000 #we have default dim 3000 for our morna indexes
 #p = 10000 #an estimate for the size of "interesting" subspace
@@ -46,7 +47,7 @@ real_values = []
 estimations = []
 blocksize = m/args.s
 
-for loop in range(10):
+for loop in range(100):
 	if not (loop % 100):
 		sys.stdout.write("Loop %d\r" % loop)
 	#%create m by d feature hashing matrix Phi
@@ -59,11 +60,12 @@ for loop in range(10):
 
 	for j in range(d):
 		for block in range(args.s):
-			print("Block %d is from %d to %d" %
-					 (block,block*blocksize,((block+1)*blocksize)-1))
+			#print("Block %d is from %d to %d" %
+			#		 (block,block*blocksize,((block+1)*blocksize)-1))
 			spot=random.randint(block*blocksize,((block+1)*blocksize)-1) 
 			#randint is inclusive; avoid index out of bounds!
 			##phi[spot][j] = random.choice((-1,1))
+			#phi[spot,j] = random.choice((-1/sqrt(args.s),1/sqrt(args.s)))
 			phi[spot,j] = random.choice((-1,1))
 	#end
 
@@ -98,7 +100,9 @@ for loop in range(10):
 	#end
 
 	#e2 = sqrt( max(0,(float(m)/(m-1))*(e1**2 - float(p)/m)))
+	print(e1**2 - float(p)/m)
 	e2 = sqrt( max(0,(e1**2 - float(p)/m)))
+	e2 = e2/sqrt(args.s)
 	#%Compare 
 	#norm(x(1:p),2)  
 	#e2
@@ -113,7 +117,7 @@ for loop in range(10):
 sys.stdout.write("\n")
 differences = [real_values[i]-estimations[i] for i,_ in enumerate(estimations)]	
 e2_rv_ratio = [estimations[i]/real_values[i] for i,_ in enumerate(estimations)]	
-
+print estimations
 print("mean real value:" + str(numpy.mean(real_values)))
 #print("real value variance:" + str(numpy.var(real_values)))
 print("mean estimation:" + str(numpy.mean(estimations)))
