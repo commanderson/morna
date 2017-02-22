@@ -49,6 +49,8 @@ x=x/numpy.linalg.norm(x,2)
 real_values = []
 estimations = []
 e1s = []
+xnorm = []
+ynorm = []
 blocksize = m/args.s
 
 for loop in range(100):
@@ -78,8 +80,9 @@ for loop in range(100):
 	#y = Phi*x;
 	y = numpy.matmul(phi,x)
 	#print("norm of y is " + str(numpy.linalg.norm(y,2)))
+	ynorm.append(numpy.linalg.norm(y,2))
 	#print("norm of x is " + str(numpy.linalg.norm(x,2)))
-
+	xnorm.append(numpy.linalg.norm(x,2))
 	#norm(y,2);
  
 	#%e1 is a biased estimator for norm(x(1:p),2);
@@ -91,6 +94,7 @@ for loop in range(100):
 		z[0,column_num] = (phi[:,column_num].transpose() * y )
 	#e1 = norm(z(1:p,1),2)
 	e1 = numpy.linalg.norm(z[0,range(0,p)],2)
+ 	e1 = e1/sqrt(args.s)
  	e1s.append(e1)
 	#%Thus using that norm(x,2)^2 = 1, 
 	#%I suggest exploring e2 = sqrt( max{0,e1^2 - p/m}) 
@@ -106,7 +110,7 @@ for loop in range(100):
 	#e2 = sqrt( max(0,(float(m)/(m-1))*(e1**2 - float(p)/m)))
 	#print(e1**2 - float(p)/m)
 	e2 = sqrt( max(0,(e1**2 - float(p)/m)))
-	e2 = e2/sqrt(args.s)
+	#e2 = e2/sqrt(args.s)
 	#%Compare 
 	#norm(x(1:p),2)  
 	#e2
@@ -129,5 +133,12 @@ print("estimation variance:" + str(numpy.var(estimations)))
 print("mean difference:" + str(numpy.mean(differences)))
 print("difference variance:" + str(numpy.var(differences)))
 print("mean e2/rv ratio:" + str(numpy.mean(e2_rv_ratio)))
-print("mean e1:" + str(numpy.mean(e1s)))
-print("e1 variance:" + str(numpy.var(e1s)))
+
+print("mean xnorm:" + str(numpy.mean(xnorm)))
+print("xnorm variance:" + str(numpy.var(xnorm)))
+
+print("mean ynorm:" + str(numpy.mean(ynorm)))
+print("ynorm variance:" + str(numpy.var(ynorm)))
+
+#print("mean e1:" + str(numpy.mean(e1s)))
+#print("e1 variance:" + str(numpy.var(e1s)))
