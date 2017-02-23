@@ -1,6 +1,7 @@
 TESTS
 
-Find all pancreas samples in gtex and get their 20 nearest neighbors:
+1.Find all pancreas samples in gtex and get their 20 nearest neighbors:
+
 First, a morna index with accompanying metadata should be constructed for gtex. 
 The command would look something like this:
 python morna.py index --intropolis ../../Downloads/intropolis_data_dl/gtex/first_pass_gtex_junctions.tsv.gz -x gtex_index -s 9662 -m ../../Downloads/intropolis_data_dl/gtex/gt_metadata.ssv 
@@ -38,3 +39,26 @@ do
     nm=$(grep -w $id ../../Downloads/intropolis_data_dl/gtex/gtex_sample_index_to_run_accession_num.tsv|cut -f 2);
     cp pancreas_neighbors_results/$line pancreas_neighbors_final_results/${nm%?}.nns;
 done
+
+
+
+2.Test the accuracy and precision of the norm estimator e2 produced by test_norm_estimator.py:
+
+run the following bash script (located in test_estimator_params.bash):
+
+echo -e -n "Num. Blocks (s)\tNum. Loops (l)\tReal value\t" > estimator_test_results.tsv
+echo -e -n "Mean e2\te2 variance\tMean difference\t" >> estimator_test_results.tsv
+echo -e "Mean e2/rv ratio\tX-norm\tMean y-norm\tY-norm variance" >> estimator_test_results.tsv
+
+#outer loop is on a list of desired s values,
+#inner loop is on a list of desired random redraw loops, or l values
+for s in {1,2,5,10};
+do	
+	echo s of $s...
+	for l in {10,100,500};
+	do
+		echo ...l of $l;
+		python test_norm_estimator.py -s $s -l $l>>estimator_test_results.tsv;
+	done;
+done
+
