@@ -17,13 +17,47 @@ import sqlite3
 import sys
 from annoy import AnnoyIndex
 from collections import defaultdict
-from math import log
+from math import log, sqrt
 from utils import *
 
 _help_intro = \
 """morna searches for known RNA-seq samples with exon-exon junction expression
 patterns similar to those in a query sample.
 """
+
+            
+def euclidean_distance(v1, v2):
+    """ Calculate the eculcidean distance between 2 vectors/points
+    
+        v1 and v2: vectors/points of matching length
+    """ 
+    distance = [(a - b)**2 for a, b in zip(v1, v2)]
+    distance = sqrt(sum(distance))
+    return distance
+    
+def magnitude(v1):
+    """ Calculate the magnitude of a vector
+    
+        v1 vectors/list of numerical values
+    """ 
+    mag = [(a)**2 for a in v1]
+    mag = sqrt(sum(mag))
+    return mag
+    
+def dot_prod(v1,v2):
+    """Calculate dot product for 2 vectors
+    
+        v1 and v2: vectors of matching length
+    """
+    return sum([i*j for (i, j) in zip(v1, v2)])
+    
+def cosine_distance(v1,v2):
+    """Calculate dot product for 2 vectors
+    
+        v1 and v2: vectors of matching length
+    """
+    cosine_similarity = dot_prod(v1, v2)/ (magnitude(v1) * magnitude(v2))
+    return 1-cosine_similarity
 
 class MornaIndex(AnnoyIndex):
     """ Augments AnnoyIndex to accommodate parameters needed by morna
@@ -152,7 +186,6 @@ class MornaIndex(AnnoyIndex):
         
             with open(self.metafile) as metafile_handle:
                 for i,line in enumerate(metafile_handle):
-                    print line
                     cursor.execute("INSERT INTO metadata VALUES ('%s','%s')"
                         % (line.split(None,1)[0],line.split(None,1)[1]))
             conn.commit()
@@ -217,7 +250,7 @@ class MornaSearch(object):
             searches.
             include_distances: bolean indicator - should the distance to each 
             neighbor be included along with the sample id?
-            metafile: bolean indicator - should an associated metadata db be 
+            meta_db: bolean indicator - should an associated metadata db be 
             used to add metadata keywords to results?
             
             Return value: a list of the sample ids of the neareast 
@@ -253,7 +286,58 @@ class MornaSearch(object):
             return results + (meta_results,)
         else:
             return results
+
+            
+    def exact_search_nn(self, num_neighbors, include_distances=True,
+                         meta_db=False):
+        """ Manually search the annoy index for the nearest neighbors to 
+            the current query_sample.
+
+            num_neighbors: an integer number of nearest neighbors to return
+            include_distances: bolean indicator - should the distance to each 
+            neighbor be included along with the sample id?
+            meta_db: bolean indicator - should an associated metadata db be 
+            used to add metadata keywords to results?
+            
+            Return value: a list of the sample ids of the neareast 
+            neighbors of the query, optionally joined in a tuple by 
+            a corresponding list of distances and/or a list of metadata keywords 
+            found in a supplied metadata db.
+        """ 
+        neighbor_indexes=[]
+        neighbor_distances=[]
+
+        for i in range(0,self.sample_count):
+            current_distance = cosine_distance(
+                self.annoy_index.get_item_vector(i),
+                self.query_sample)
+            insert_point = bisect.bisect_left(neighbor_distances,
+                                          current_distance)
+            if insert_point < num_neighbors:
+                neighbor_distances.insert(insert_point,current_distance)
+                neighbor_indexes.insert(insert_point,i)
+            if len(neighbor_distances) > num_neighbors:
+                neighbor_distances = neighbor_distances[0:num_neighbors]
+                neighbor_indexes = neighbor_indexes[0:num_neighbors]
+
+        results = (neighbor_indexes,)
+        if include_distances:
+            results += (neighbor_distances,)
         
+        if meta_db:
+            meta_results = ['' for _ in results[0]]
+            conn = sqlite3.connect(self.basename + ".meta.mor")
+            cursor = conn.cursor()
+            for i,sample_id in enumerate(results[0]):
+                cursor.execute(
+                    'SELECT keywords FROM metadata WHERE sample_id=?',
+                                                 (str(sample_id),))
+                meta_results[i] = cursor.fetchone()
+            return results + (meta_results,)
+        else:
+            return results
+            
+            
     def search_member_n(self, id, num_neighbors, search_k, 
                     include_distances=True, meta_db=False):
         """ Uses a given element of the annoy index to query it
@@ -266,7 +350,7 @@ class MornaSearch(object):
             searches.
             include_distances: bolean indicator - should the distance to each 
             neighbor be included along with the sample id?
-            metafile: bolean indicator - should an associated metadata db be 
+            meta_db: bolean indicator - should an associated metadata db be 
             used to add metadata keywords to results?
             
             Return value: a list of the sample ids of the neareast 
@@ -390,6 +474,12 @@ if __name__ == '__main__':
             default=None,
             help=('attempt to converge on a solution with concordance equal'
                   'to the given argument as a percentage (truncated to 0-100)')
+        )
+    search_parser.add_argument('--exact', action='store_const',
+            const=True,
+            default=False,
+            help='search for exact nearest neighbor to query within morna index'
+                 'rather than using annoy hyperplane division algorithm'
         )
     index_parser.add_argument('-m', '--metafile',  metavar='<str>', type=str,
             required=False,
@@ -536,7 +626,13 @@ if __name__ == '__main__':
             
             if args.verbose:
                 sys.stderr.write("\n")
-            results = (searcher.search_nn(20, args.search_k,
-                        include_distances=args.distances,
-                        meta_db = args.metadata))
+            if args.exact:
+                results = searcher.exact_search_nn(20,
+                 include_distances=args.distances, meta_db = args.metadata)
+            else:
+                results = (searcher.search_nn(20, args.search_k,
+                            include_distances=args.distances,
+                            meta_db = args.metadata))
             print results
+            
+            
