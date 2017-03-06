@@ -8,7 +8,7 @@ python morna.py index --intropolis ../../Downloads/intropolis_data_dl/gtex/first
 
 With this index, as well as the metadata files, we can extract the sample ids of 
 pancreas samples and query our morna index for their nearest neighbors.
-The process is outline in all_gtex_pancreas_nns.bash, and is as follows,
+The process is outlined in all_gtex_pancreas_nns.bash, and is as follows,
 noting that the bash script assumes it is being run from the morna directory:
 
 To get a file listing the sample ids:
@@ -61,4 +61,30 @@ do
 		python test_norm_estimator.py -s $s -l $l>>estimator_test_results.tsv;
 	done;
 done
+
+3. Test the degree to which the approximate nearest neighbor search carried out by annoy replicates the results of the exact nearest neighbor search of all vectors in the index (carried out by morna search with the --exact parameter) at various levels of num_trees (an indexing parameter) and search_k (a search parameter.The process is outlined in compare_approx_exact_search.bash, and is as follows,
+noting that the bash script assumes it is being run from the morna directory:
+
+First, a morna index with accompanying metadata should be constructed for gtex, for each different value of n_trees you want to test. 
+The command would look something like this:
+
+for nt in {10,20,50,100,200};
+do 
+    echo $nt trees;
+    python morna.py index --intropolis ../../Downloads/intropolis_data_dl/gtex/first_pass_gtex_junctions.tsv.gz -x gtex_index_nt$nt -s 9662 --n-trees $nt -m ../../Downloads/intropolis_data_dl/gtex/gt_metadata.ssv;
+done
+
+Then, use a sample query to test the similarity of results between exact and approximate nearest neighbor search for each such index at each desired search_k. The command would look like this:
+for nt in {10,20,50,100,200};
+do
+    echo $nt trees;
+    for sk in {10,20,50,100,200};
+    do
+        echo $sk search_k;
+        cat ../../Downloads/intropolis_data_dl/gtex/query_beds/junctions.SRR1076268_SRS524526_SRX408563_male_stomach.bed | python morna.py search -x gtex_index_nt$nt -f bed --search-k $sk --exact > parameter_test_results/$nt-$sk-ex.res;
+        cat ../../Downloads/intropolis_data_dl/gtex/query_beds/junctions.SRR1076268_SRS524526_SRX408563_male_stomach.bed | python morna.py search -x gtex_index_nt$nt -f bed --search-k $sk > parameter_test_results/$nt-$sk-ap.res;
+    done
+done
+
+
 
