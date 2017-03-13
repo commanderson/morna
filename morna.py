@@ -72,11 +72,13 @@ class MornaIndex(AnnoyIndex):
         See https://github.com/spotify/annoy/blob/master/annoy/__init__.py
         for original class. 
     """
-    def __init__(self, sample_count, dim=3000, 
-                 sample_threshold=100, metafile = None):
+    def __init__(self, sample_count, basename, dim=3000, 
+                 sample_threshold=100, metafile=None):
         super(MornaIndex, self).__init__(dim, metric='angular')
         # Store the total number of samples represented in the index
         self.sample_count = sample_count
+        #Store basename for index files
+        self.basename = basename
         # Store numbers of samples in which each junction is found
         self.sample_frequencies = defaultdict(int)
         # Store low-dimensional representations of samples
@@ -89,7 +91,11 @@ class MornaIndex(AnnoyIndex):
         self.dim = self.dimension_count = dim
         # Minimum number of samples in which junction should be found
         self.sample_threshold = sample_threshold
-    
+        # list of junction ids per sample database connection
+        self.junction_conn = sqlite3.connect(self.basename + '.junc.mor')
+        self.junc_cursor = self.junction_conn.cursor()
+        self.junc_id = -1
+        
     def add_junction(self, junction, samples, coverages):
         """ Adds contributions of a single junction to feature vectors
 
@@ -101,6 +107,22 @@ class MornaIndex(AnnoyIndex):
 
             No return value.
         """
+        
+        self.junc_id += 1
+        
+        for i,sample_id in enumerate(samples):
+            self.junc_cursor.execute(("CREATE TABLE IF NOT EXISTS sample_%d "         
+                                        +"(junction_id real, coverage real)") 
+                            % sample_id)
+            self.junc_cursor.execute("INSERT INTO sample_%d VALUES (%d, %d)"
+                    % (sample_id,self.junc_id,coverages[i]))
+        
+        if (self.junc_id % 1000 == 0):
+            self.junction_conn.commit()
+            print >>sys.stderr, (
+                            'Wrote junc_id {} into tables'
+                        ).format(self.junc_id)
+        
         if len(samples) < self.sample_threshold:
             return
         self.sample_frequencies[junction] += len(samples)
@@ -163,6 +185,9 @@ class MornaIndex(AnnoyIndex):
         with open(basename + ".freq.mor", 'w') as pickle_stream:
             cPickle.dump(self.sample_frequencies, pickle_stream,
                          cPickle.HIGHEST_PROTOCOL)
+        self.junction_conn.commit()
+        self.junction_conn.close()
+        
         if self.metafile:
             #Parse file at metafaile and save it into a metadata db
             #Metafile format (whitespace separated)
@@ -395,6 +420,9 @@ if __name__ == '__main__':
     index_parser = subparsers.add_parser('index', help='creates a morna index')
     search_parser = subparsers.add_parser('search',
                                             help='searches a morna index')
+    
+    align_parser = subparsers.add_parser('align',
+                                            help='perform alignment')
     # Add command-line arguments
     index_parser.add_argument('--intropolis', metavar='<str>', type=str,
             required=True,
@@ -510,7 +538,8 @@ if __name__ == '__main__':
         if args.verbose:
             print '\nThere are {} samples.'.format(args.sample_count)
             
-        morna_index = MornaIndex(args.sample_count, dim=args.features,
+        morna_index = MornaIndex(args.sample_count, args.basename, 
+                                    dim=args.features,
                                     sample_threshold=args.sample_threshold, 
                                     metafile=args.metafile)
         with gzip.open(args.intropolis) as introp_file_handle:
