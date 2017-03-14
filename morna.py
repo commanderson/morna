@@ -527,7 +527,7 @@ if __name__ == '__main__':
     add_search_parameters(align_parser)
     align_parser.add_argument('--aligner', '-a', metavar='<exe>', type=str,
             required=False,
-            default='STAR'
+            default='STAR',
             help='STAR or HISAT(2) binary'
         )
     align_parser.add_argument('-1', '--mates-1', metavar='<m1>',
@@ -547,7 +547,7 @@ if __name__ == '__main__':
             default=None,
             help='files with unpaired reads'
         )
-    align_parser.add_argument('-x', '--index', metavar='<idx>', type=str,
+    align_parser.add_argument('-i', '--index', metavar='<idx>', type=str,
             required=True,
             help=('index basename or directory; use same assembly as was used '
                   'for junctions indexed by morna\'s similarity search')
