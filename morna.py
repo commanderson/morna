@@ -410,6 +410,61 @@ class MornaSearch(object):
         else:
             return results
 
+def add_search_parameters(subparser):
+    """ Adds command-line parameters associated with search subcommand
+
+        subparser: subparser of argparse.ArgumentParser
+
+        No return value.
+    """
+    subparser.add_argument('-x', '--basename', metavar='<idx>', type=str,
+            required=True,
+            help='path to junction index basename for search'
+        )
+    subparser.add_argument('-v', '--verbose', action='store_const',
+            const=True,
+            default=False,
+            help='be talkative'
+        )
+    subparser.add_argument('--search-k', metavar='<int>', type=int,
+            required=False,
+            default=100,
+            help='a larger value makes for more accurate search'
+        )
+    subparser.add_argument('-f', '--format', metavar='<choice>', type=str,
+            required=False,
+            default='sam',
+            help=('one of {sam, bed, raw}')
+        )
+    subparser.add_argument('-d', '--distances', action='store_const',
+            const=True,
+            default=False,
+            help='include distances to nearest neighbors'
+        )
+    subparser.add_argument('-m', '--metadata', action='store_const',
+            const=True,
+            default=False,
+            help='display results mapped to metadata'
+        )
+    subparser.add_argument('-c','--converge', metavar='<int>', type=int,
+            required=False,
+            default=None,
+            help=('attempt to converge on a solution with concordance equal'
+                  'to the given argument as a percentage (truncated to 0-100)')
+        )
+    subparser.add_argument('-q','--query-id', metavar='<int>', type=int,
+            required=False,
+            default=None,
+            help=('attempt to converge on a solution with concordance equal'
+                  'to the given argument as a percentage (truncated to 0-100)')
+        )
+    subparser.add_argument('-e', '--exact', action='store_const',
+            const=True,
+            default=False,
+            help='search for exact nearest neighbor to query within morna index'
+                 'rather than using annoy hyperplane division algorithm'
+        )
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=_help_intro, 
                 formatter_class=help_formatter)
@@ -422,9 +477,9 @@ if __name__ == '__main__':
                                             help='searches a morna index')
     
     align_parser = subparsers.add_parser('align',
-                                            help='perform alignment')
+                                            help='performs alignment')
     # Add command-line arguments
-    index_parser.add_argument('--intropolis', metavar='<str>', type=str,
+    index_parser.add_argument('--intropolis', metavar='<file>', type=str,
             required=True,
             help=('path to gzipped file recording junctions across samples '
                   'in intropolis format')
@@ -433,10 +488,6 @@ if __name__ == '__main__':
             required=False,
             default='morna',
             help='basename path of junction index files to create'
-        )
-    search_parser.add_argument('-x', '--basename', metavar='<str>', type=str,
-            required=True,
-            help='basename path of junction index to search'
         )
     index_parser.add_argument('--features', metavar='<int>', type=int,
             required=False,
@@ -447,16 +498,6 @@ if __name__ == '__main__':
             required=False,
             default=200,
             help='number of annoy trees'
-        )
-    search_parser.add_argument('--search-k', metavar='<int>', type=int,
-            required=False,
-            default=100,
-            help='a larger value makes for more accurate search'
-        )
-    search_parser.add_argument('-f', '--format', metavar='<choice>', type=str,
-            required=False,
-            default='sam',
-            help=('one of {sam, bed, raw}')
         )
     index_parser.add_argument('-s','--sample-count', metavar='<int>', type=int,
             required=False,
@@ -476,48 +517,50 @@ if __name__ == '__main__':
             default=False,
             help='be talkative'
         )
-    search_parser.add_argument('-v', '--verbose', action='store_const',
-            const=True,
-            default=False,
-            help='be talkative'
-        )
-    search_parser.add_argument('-d', '--distances', action='store_const',
-            const=True,
-            default=False,
-            help='include distances to nearest neighbors'
-        )
-    search_parser.add_argument('-m', '--metadata', action='store_const',
-            const=True,
-            default=False,
-            help='display results mapped to metadata'
-        )
-    search_parser.add_argument('-c','--converge', metavar='<int>', type=int,
-            required=False,
-            default=None,
-            help=('attempt to converge on a solution with concordance equal'
-                  'to the given argument as a percentage (truncated to 0-100)')
-        )
-    search_parser.add_argument('-q','--query-id', metavar='<int>', type=int,
-            required=False,
-            default=None,
-            help=('attempt to converge on a solution with concordance equal'
-                  'to the given argument as a percentage (truncated to 0-100)')
-        )
-    search_parser.add_argument('--exact', action='store_const',
-            const=True,
-            default=False,
-            help='search for exact nearest neighbor to query within morna index'
-                 'rather than using annoy hyperplane division algorithm'
-        )
-    index_parser.add_argument('-m', '--metafile',  metavar='<str>', type=str,
+    index_parser.add_argument('-m', '--metafile',  metavar='<file>', type=str,
             required=False,
             default=None,
             help=('path to metadata file with sample index in first column'
                   'and other keywords in other columns, whitespace delimited')
         )
+    add_search_parameters(search_parser)
+    add_search_parameters(align_parser)
+    align_parser.add_argument('--aligner', '-a', metavar='<exe>', type=str,
+            required=False,
+            default='STAR'
+            help='STAR or HISAT(2) binary'
+        )
+    align_parser.add_argument('-1', '--mates-1', metavar='<m1>',
+            type=str, nargs='+',
+            required=False,
+            help='files with #1 mates'
+        )
+    align_parser.add_argument('-2', '--mates-2', metavar='<m2>',
+            type=str, nargs='+',
+            required=False,
+            default=None,
+            help='files with #2 mates'
+        )
+    align_parser.add_argument('-U', '--unpaired', metavar='<r>',
+            type=str, nargs='+',
+            required=False,
+            default=None,
+            help='files with unpaired reads'
+        )
+    align_parser.add_argument('-x', '--index', metavar='<idx>', type=str,
+            required=True,
+            help=('index basename or directory; use same assembly as was used '
+                  'for junctions indexed by morna\'s similarity search')
+        )
+    align_parser.add_argument('--aligner-args',
+            type=str,
+            required=False,
+            default=None,
+            help='additional arguments to pass to aligner; use quote string'
+        )
     args = parser.parse_args()
 
-    if hasattr(args, 'intropolis'):
+    if args.subparser_name == 'index':
         # Index
         if not args.sample_count:
             # Count number of samples
@@ -566,7 +609,25 @@ if __name__ == '__main__':
         morna_index.build(args.n_trees, verbose=args.verbose)
         morna_index.save(args.basename)
     else:
-    
+        if args.subparser_name == 'align':
+            # Check command-line parameters
+            if args.unpaired is not None:
+                if args.mates_1 is not None or args.mates_2 is not None:
+                    raise RuntimeError(
+                            'Cannot align both paired and unpaired reads at '
+                            'once.'
+                        )
+            elif (args.mates_1 is not None and args.mates_2 is None 
+                    or args.mates_2 is not None and args.mates_1 is None):
+                raise RuntimeError(
+                        'If analyzing paired-end reads, must specify paths '
+                        'to both mates files.'
+                    )
+            elif len(args.mates_1) != len(args.mates_2):
+                raise RuntimeError(
+                        'The numbers of #1-mate and #2-mate files must be '
+                        'equal.'
+                    )
         searcher = MornaSearch(basename=args.basename) 
         # Search
         # The search by query id case cuts out early
@@ -576,7 +637,6 @@ if __name__ == '__main__':
                                      meta_db = args.metadata)
             print results
             quit()
-        
         # Read BED or BAM
         if args.format == 'sam':
             junction_generator = junctions_from_sam_stream(sys.stdin)
@@ -585,10 +645,6 @@ if __name__ == '__main__':
         else:
             assert args.format == 'raw'
             junction_generator = junctions_from_raw_stream(sys.stdin)
-        
-        
-        
-        
         if (args.converge) and (args.format == 'sam'):
             threshold = args.converge
             backoff = 100
