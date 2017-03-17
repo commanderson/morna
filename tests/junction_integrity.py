@@ -3,7 +3,6 @@
 import argparse
 import re
 import sqlite3
-from BitVector import BitVector
 
 parser = argparse.ArgumentParser()
 parser.add_argument('-d','--database', metavar='<str>', type=str,
@@ -33,9 +32,9 @@ for table in sorted(tables):
             else:
                 bit='0'
             if last_one==bit:
-                print "With shr_str " + shr_str + " we found 2 " + bit + "s in a row"
+                print "ERR:With len(shr_str) " + str(len(shr_str)) + " we found 2 " + bit + "s in a row"
             else:
                 last_one=bit
             shr_str = m.groups()[0]
         if not num_juncs==len(covs.split(',')):
-		print "In table " + table + "found numjuncs " +str(num_juncs) + " but len(covs.split(',')) " +str(len(covs.split(',')))
+		print "ERR:In table " + table + " found numjuncs " +str(num_juncs) + " but len(covs.split(',')) " +str(len(covs.split(',')))

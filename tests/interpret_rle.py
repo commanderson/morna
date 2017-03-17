@@ -1,8 +1,18 @@
 #!/usr/bin/env python
+
+import argparse
 import re
 from BitVector import BitVector
-orig_str="o3i4o1i1o1i1"
-shr_str=orig_str
+
+parser = argparse.ArgumentParser()
+parser.add_argument('-s','--string', metavar='<str>', type=str,
+            required=True,
+            help=('String to interpret as run-length-encoded'
+                  'bit vector')
+        )
+args = parser.parse_args()
+
+shr_str=args.string
 bv=BitVector(size=0)
 while len(shr_str)>0:
     print "starting with shr-str of:" +shr_str
@@ -13,5 +23,7 @@ while len(shr_str)>0:
     else:
             bit='0'
     bv = BitVector(bitstring=(int(m.groups()[2])*bit)) + bv
-print orig_str
+print "Original String:"
+print args.string
+print "Bit vector:"
 print bv
