@@ -13,9 +13,11 @@ import bisect
 import gzip
 import cPickle
 import mmh3
+import re
 import sqlite3
 import sys
 from annoy import AnnoyIndex
+from BitVector import BitVector
 from collections import defaultdict
 from math import log, sqrt
 from utils import *
@@ -95,6 +97,7 @@ class MornaIndex(AnnoyIndex):
         self.junction_conn = sqlite3.connect(self.basename + '.junc.mor')
         self.junc_cursor = self.junction_conn.cursor()
         self.junc_id = -1
+        self.last_present_junction = defaultdict(lambda:-1)
         
     def add_junction(self, junction, samples, coverages):
         """ Adds contributions of a single junction to feature vectors
@@ -109,13 +112,52 @@ class MornaIndex(AnnoyIndex):
         """
         
         self.junc_id += 1
-        
+                
         for i,sample_id in enumerate(samples):
-            self.junc_cursor.execute(("CREATE TABLE IF NOT EXISTS sample_%d "         
-                                        +"(junction_id real, coverage real)") 
-                            % sample_id)
-            self.junc_cursor.execute("INSERT INTO sample_%d VALUES (%d, %d)"
-                    % (sample_id,self.junc_id,coverages[i]))
+            if self.last_present_junction[sample_id] == -1: 
+            #if this is the first time we've seen this sample,
+            #we'll have to make a table for it.
+                print "creating table sample_" + str(sample_id)
+                self.junc_cursor.execute(("CREATE TABLE sample_%d "         
+                                        +"(junctions TEXT,"
+                                         +"coverages TEXT)") 
+                                            % sample_id)
+                #new table needs a run of {junc_id} 0s followed by 1 1 
+                #and coverages of {coverage}
+                new_junctions = "i1"
+                if self.junc_id >0:
+                    #add run of junc_id 0s to new junctions str
+                    new_junctions = "o" + str(self.junc_id) + new_junctions
+                    
+                    
+                #insert values into table 
+                sql = ("INSERT INTO sample_%d VALUES (?, ?)" % sample_id)
+                self.junc_cursor.execute(sql, [new_junctions,str(coverages[i])])
+                self.last_present_junction[sample_id] = self.junc_id
+            else: #if there is already a table for this sample
+                #this will imply self.last_present_junction[sample_id] isn't -1
+                #first we check if we're on a run of 1s for this sample
+                if self.last_present_junction[sample_id] == self.junc_id - 1:
+                    for res in self.junc_cursor.execute(
+                    ("SELECT junctions FROM sample_%d") % sample_id):    
+                        m = re.search("(.*)(\d+)$",res[0])
+                    current_run_length = int(m.group(2))
+                    new_junctions = m.group(1) + str(current_run_length + 1)
+                    sql = (("UPDATE sample_%d SET junctions = ?, coverages ="  
+                                                + "coverages||','||?") 
+                                                % sample_id)
+                    
+                    self.junc_cursor.execute(sql, [new_junctions,coverages[i]])
+                    
+                else:
+                    additional_junctions = "o" + str((self.junc_id 
+                    - self.last_present_junction[sample_id]) - 1) + "i1"
+                    sql = ((
+                    "UPDATE sample_%d SET junctions = junctions||?, "
+                    + "coverages = coverages||','||?")
+                    % sample_id)
+                    self.junc_cursor.execute(sql, 
+                            [additional_junctions,coverages[i]])
         
         if (self.junc_id % 1000 == 0):
             self.junction_conn.commit()
@@ -185,6 +227,15 @@ class MornaIndex(AnnoyIndex):
         with open(basename + ".freq.mor", 'w') as pickle_stream:
             cPickle.dump(self.sample_frequencies, pickle_stream,
                          cPickle.HIGHEST_PROTOCOL)
+        #Now, deal with junction db:
+        #We have to update all junction lists with runs of 0s,
+        #except the ones updated in the last junction addition
+        for sample in self.last_present_junction.keys():
+            if self.last_present_junction[sample]<self.junc_id:
+                additional_junctions='o'+str(self.junc_id
+                                - self.last_present_junction[sample])
+        #with that update, we have finished writing our run-length-
+        #encoded junctions!
         self.junction_conn.commit()
         self.junction_conn.close()
         
@@ -470,7 +521,8 @@ if __name__ == '__main__':
                 formatter_class=help_formatter)
     subparsers = parser.add_subparsers(help=(
                 'subcommands; add "-h" or "--help" '
-                'after a subcommand for its parameters')
+                'after a subcommand for its parameters'),
+                dest='subparser_name'
             )
     index_parser = subparsers.add_parser('index', help='creates a morna index')
     search_parser = subparsers.add_parser('search',
@@ -559,7 +611,6 @@ if __name__ == '__main__':
             help='additional arguments to pass to aligner; use quote string'
         )
     args = parser.parse_args()
-
     if args.subparser_name == 'index':
         # Index
         if not args.sample_count:
@@ -628,10 +679,10 @@ if __name__ == '__main__':
                         'The numbers of #1-mate and #2-mate files must be '
                         'equal.'
                     )
-        searcher = MornaSearch(basename=args.basename) 
+        searcher = MornaSearch(basename=args.basename)
         # Search
         # The search by query id case cuts out early
-        if args.query_id:
+        if args.query_id is not None:
             results = searcher.search_member_n(args.query_id,20, args.search_k,
                                     include_distances=args.distances,
                                      meta_db = args.metadata)
