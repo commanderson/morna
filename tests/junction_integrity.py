@@ -34,7 +34,6 @@ for table in sorted(tables):
                 bit='0'
             if last_one==bit:
                 print "With shr_str " + shr_str + " we found 2 " + bit + "s in a row"
-                quit()
             else:
                 last_one=bit
             shr_str = m.groups()[0]
