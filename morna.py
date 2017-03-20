@@ -13,6 +13,7 @@ import bisect
 import gzip
 import cPickle
 import mmh3
+import os
 import re
 import sqlite3
 import sys
@@ -93,12 +94,18 @@ class MornaIndex(AnnoyIndex):
         self.dim = self.dimension_count = dim
         # Minimum number of samples in which junction should be found
         self.sample_threshold = sample_threshold
-        # list of junction ids per sample database connection
+        # list of junction ids per sample database connection;
+        #Will overwrite old DB if it already exists!
+        try:
+            os.remove(self.basename + '.junc.mor')
+        except OSError:
+            pass
         self.junction_conn = sqlite3.connect(self.basename + '.junc.mor')
         self.junc_cursor = self.junction_conn.cursor()
         self.junc_id = -1
         self.last_present_junction = defaultdict(lambda:-1)
-        
+     
+    #@profile   
     def add_junction(self, junction, samples, coverages):
         """ Adds contributions of a single junction to feature vectors
 
@@ -133,7 +140,7 @@ class MornaIndex(AnnoyIndex):
                 #insert values into table 
                 sql = ("INSERT INTO sample_%d VALUES (?, ?)" % sample_id)
                 self.junc_cursor.execute(sql, [new_junctions,str(coverages[i])])
-                self.last_present_junction[sample_id] = self.junc_id
+                
             else: #if there is already a table for this sample
                 #this will imply self.last_present_junction[sample_id] isn't -1
                 #first we check if we're on a run of 1s for this sample
@@ -158,6 +165,7 @@ class MornaIndex(AnnoyIndex):
                     % sample_id)
                     self.junc_cursor.execute(sql, 
                             [additional_junctions,coverages[i]])
+            self.last_present_junction[sample_id] = self.junc_id
         
         if (self.junc_id % 1000 == 0):
             self.junction_conn.commit()
@@ -228,12 +236,19 @@ class MornaIndex(AnnoyIndex):
             cPickle.dump(self.sample_frequencies, pickle_stream,
                          cPickle.HIGHEST_PROTOCOL)
         #Now, deal with junction db:
-        #We have to update all junction lists with runs of 0s,
+        #We have to pad out all junction lists with runs of 0s,
         #except the ones updated in the last junction addition
         for sample in self.last_present_junction.keys():
+            print("Sample " + str(sample) + " has last present junction " + str(self.last_present_junction[sample]) +" and final (0-based) junc id was "+ str(self.junc_id) + " junctions")
             if self.last_present_junction[sample]<self.junc_id:
                 additional_junctions='o'+str(self.junc_id
                                 - self.last_present_junction[sample])
+                print("gonna add " + str(additional_junctions))
+                sql = ((
+                    "UPDATE sample_%d SET junctions = junctions||?")
+                    % sample)
+                self.junc_cursor.execute(sql,[additional_junctions])
+
         #with that update, we have finished writing our run-length-
         #encoded junctions!
         self.junction_conn.commit()
