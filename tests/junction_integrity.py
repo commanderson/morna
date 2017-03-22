@@ -12,6 +12,7 @@ format, with strictly alternating runs of 'o' and 'i'
 
 import argparse
 import re
+import sys
 import sqlite3
 
 parser = argparse.ArgumentParser()
@@ -32,9 +33,9 @@ c=conn.cursor()
 tables=[]
 for line in c.execute("SELECT name FROM sqlite_master WHERE type='table'"):
     tables.append(str(line[0]))
-
+problem = False
 for table in sorted(tables):
-    print "Checking table " + table
+    sys.stdout.write("Checking table " + table + "\r")
     for juncs,covs in c.execute(("SELECT * FROM %s")%table):
         num_juncs = 0
         num_pos_juncs = 0
@@ -49,15 +50,23 @@ for table in sorted(tables):
             else:
                 bit='0'
             if last_one==bit:
-                print "ERR:With len(shr_str) " + str(len(shr_str)) + " we found 2 " + bit + "s in a row"
+                problem = True
+                print "\nERR:With len(shr_str) " + str(len(shr_str)) + " we found 2 " + bit + "s in a row"
             else:
                 last_one=bit
             shr_str = m.groups()[0]
         if not num_pos_juncs==len(covs.split(',')):
-		    print("ERR:In table " + table + " found num_pos_juncs " 
+		    print("\nERR:In table " + table + " found num_pos_juncs " 
 		            + str(num_pos_juncs) + " but len(covs.split(',')) " 
 		            + str(len(covs.split(','))))
+		    problem = True
         if not num_juncs==args.junctions:
-		    print("ERR:In table " + table + " found num_juncs "
+		    print("\nERR:In table " + table + " found num_juncs "
 		            + str(num_juncs) + " which disagrees with arg junctions"
 		            + " (" + str(args.junctions)+")")
+		    problem = True
+		    
+if problem:
+    print("\nERR(s) occurred; see above messages")
+else:
+    print("\nIntegrity checks out!")

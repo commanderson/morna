@@ -101,14 +101,19 @@ class MornaIndex(AnnoyIndex):
         except OSError:
             pass
         self.junction_conn = sqlite3.connect(self.basename + '.junc.mor')
+        self.junction_conn.isolation_level = None
         self.junc_cursor = self.junction_conn.cursor()
+        self.junc_cursor.execute("BEGIN")
         self.junc_id = -1
         self.last_present_junction = defaultdict(lambda:-1)
+        self.jns_write_buffer = defaultdict(list)
+        self.cov_write_buffer = defaultdict(list)
      
-    #@profile   
+    @profile   
     def add_junction(self, junction, samples, coverages):
         """ Adds contributions of a single junction to feature vectors
-
+            and also constructs junctions-by-sample database.
+            
             junction: string representation of junction
                 (typically chromosome, 1-based inclusive start position,
                  1-based inclusive end position)
@@ -119,59 +124,93 @@ class MornaIndex(AnnoyIndex):
         """
         
         self.junc_id += 1
-                
+        
         for i,sample_id in enumerate(samples):
             if self.last_present_junction[sample_id] == -1: 
-            #if this is the first time we've seen this sample,
-            #we'll have to make a table for it.
-                print "creating table sample_" + str(sample_id)
+                #if this is the first time we've seen this sample,
+                #we'll have to make a table for it.
                 self.junc_cursor.execute(("CREATE TABLE sample_%d "         
                                         +"(junctions TEXT,"
                                          +"coverages TEXT)") 
-                                            % sample_id)
-                #new table needs a run of {junc_id} 0s followed by 1 1 
-                #and coverages of {coverage}
-                new_junctions = "i1"
+                                            % sample_id)                
+                   
+                #Each table needs initial entries!
+                #That way buffers can be added in update statements
+                brand_new_junctions = "i1"
                 if self.junc_id >0:
-                    #add run of junc_id 0s to new junctions str
-                    new_junctions = "o" + str(self.junc_id) + new_junctions
-                    
-                    
-                #insert values into table 
+                    brand_new_junctions = ("o" + str(self.junc_id) 
+                                            + brand_new_junctions)                
                 sql = ("INSERT INTO sample_%d VALUES (?, ?)" % sample_id)
-                self.junc_cursor.execute(sql, [new_junctions,str(coverages[i])])
+                self.junc_cursor.execute(sql, 
+                            [brand_new_junctions,str(coverages[i])])
                 
             else: #if there is already a table for this sample
                 #this will imply self.last_present_junction[sample_id] isn't -1
                 #first we check if we're on a run of 1s for this sample
                 if self.last_present_junction[sample_id] == self.junc_id - 1:
-                    for res in self.junc_cursor.execute(
-                    ("SELECT junctions FROM sample_%d") % sample_id):    
-                        m = re.search("(.*)(\d+)$",res[0])
-                    current_run_length = int(m.group(2))
-                    new_junctions = m.group(1) + str(current_run_length + 1)
-                    sql = (("UPDATE sample_%d SET junctions = ?, coverages ="  
-                                                + "coverages||','||?") 
-                                                % sample_id)
+                    #If so, we need to get the current run length
+                    #If there's stuff in the buffer, we can check there
+                    if (self.jns_write_buffer[sample_id]):
+                        m = re.search("i(\d+)$",
+                                  self.jns_write_buffer[sample_id][-1])
+                        current_run_length = int(m.group(1))
+                        new_terminus = ('i' + str(current_run_length + 1))
+                        #and even update the run itself in buffer
+                        self.jns_write_buffer[sample_id][-1]=(new_terminus)
+                        self.cov_write_buffer[sample_id].append(coverages[i])
+                    #Otherwise, we actually have to update the run in db :/    
+                    #This is an edge case that should almost never apply, 
+                    #but it's definitely the worst case performance-wise.
+                    else:
+                        current_junctions=""
+                        for res in self.junc_cursor.execute(
+                        ("SELECT junctions FROM sample_%d") % sample_id):    
+                            current_junctions = res[0]
+                        m = re.search("(.*?)i(\d+)$", current_junctions)
+                        current_run_length = int(m.group(2))
+                        new_junctions = (m.group(1) + 'i' +
+                                         str(current_run_length + 1))
+                        sql = (("UPDATE sample_%d SET junctions = ?," 
+                                + " coverages = coverages||','||?") 
+                                                    % sample_id)
+                        self.junc_cursor.execute(sql,
+                            [new_junctions,coverages[i]])
                     
-                    self.junc_cursor.execute(sql, [new_junctions,coverages[i]])
-                    
-                else:
-                    additional_junctions = "o" + str((self.junc_id 
-                    - self.last_present_junction[sample_id]) - 1) + "i1"
+                #Otherwise, provided we're not on a run of 1s
+                else: 
+                    self.jns_write_buffer[sample_id].append(
+                            "o" + str((self.junc_id 
+                                - self.last_present_junction[sample_id]) - 1))
+                    self.jns_write_buffer[sample_id].append("i1")
+                    self.cov_write_buffer[sample_id].append(coverages[i])
+                
+                #We will write buffer contents when buffer gets too big,
+                #and then empty the sample's buffer
+                if (sys.getsizeof(self.jns_write_buffer[sample_id]) > 1024):
+                    #print "let's write buffer for sample " + str(sample_id)
                     sql = ((
                     "UPDATE sample_%d SET junctions = junctions||?, "
                     + "coverages = coverages||','||?")
                     % sample_id)
                     self.junc_cursor.execute(sql, 
-                            [additional_junctions,coverages[i]])
+                            ["".join(self.jns_write_buffer[sample_id]),
+                            ",".join(str(c) for c in         
+                                    self.cov_write_buffer[sample_id])
+                            ]
+                    
+                    )
+                    #self.junction_conn.commit()
+                    self.jns_write_buffer[sample_id] = []
+                    self.cov_write_buffer[sample_id] = []
+            #No matter what case we hit, each sample must update its 
+            #last_present_junction to the current.
             self.last_present_junction[sample_id] = self.junc_id
         
-        if (self.junc_id % 1000 == 0):
-            self.junction_conn.commit()
-            print >>sys.stderr, (
-                            'Wrote junc_id {} into tables'
-                        ).format(self.junc_id)
+        #if (self.junc_id % 1000 == 0):
+        #    self.junction_conn.commit()
+        #    print >>sys.stderr, (
+         #                   'Wrote junc_id {} into tables'
+          #              ).format(self.junc_id)
         
         if len(samples) < self.sample_threshold:
             return
@@ -239,18 +278,41 @@ class MornaIndex(AnnoyIndex):
         #We have to pad out all junction lists with runs of 0s,
         #except the ones updated in the last junction addition
         for sample in self.last_present_junction.keys():
-            print("Sample " + str(sample) + " has last present junction " + str(self.last_present_junction[sample]) +" and final (0-based) junc id was "+ str(self.junc_id) + " junctions")
+            #First, add terminal 0s to each buffer (if needed)
             if self.last_present_junction[sample]<self.junc_id:
-                additional_junctions='o'+str(self.junc_id
-                                - self.last_present_junction[sample])
-                print("gonna add " + str(additional_junctions))
-                sql = ((
+                self.jns_write_buffer[sample].append('o'+str(self.junc_id
+                                - self.last_present_junction[sample]))
+                #print("gonna add " + str(additional_junctions))
+            
+            #then write the buffer out, skipping only empty buffers
+            #(NOTE: Must use different sql if there are no coverages to add,
+            #aka the only-terminal-0s case)
+            if (self.jns_write_buffer[sample]):
+                if (self.cov_write_buffer[sample]):
+                    sql = ((
+                    "UPDATE sample_%d SET junctions = junctions||?, "
+                    + "coverages = coverages||','||?")
+                    % sample)
+                    self.junc_cursor.execute(sql, 
+                            ["".join(self.jns_write_buffer[sample]),
+                            ",".join(str(c) for c in         
+                                    self.cov_write_buffer[sample])
+                            ]
+                    )
+                    self.cov_write_buffer[sample] = []
+
+                else:
+                    sql = ((
                     "UPDATE sample_%d SET junctions = junctions||?")
                     % sample)
-                self.junc_cursor.execute(sql,[additional_junctions])
-
-        #with that update, we have finished writing our run-length-
-        #encoded junctions!
+                    self.junc_cursor.execute(sql, 
+                            ["".join(self.jns_write_buffer[sample])])
+                    
+                self.jns_write_buffer[sample] = []
+                
+        #with that, we have finished writing our run-length-encoded junctions!
+        self.junc_cursor.execute("COMMIT")
+        self.junction_conn.execute("VACUUM")
         self.junction_conn.commit()
         self.junction_conn.close()
         
@@ -654,8 +716,8 @@ if __name__ == '__main__':
         with gzip.open(args.intropolis) as introp_file_handle:
             if args.verbose:
                 for i, line in enumerate(introp_file_handle):
-                    if i % 100 == 0:
-                        sys.stdout.write(str(i) + " lines into index making\r")
+                    if i % 1000 == 0:
+                        sys.stdout.write(str(i) + " lines into index making\n")
                     tokens = line.strip().split('\t')
                     morna_index.add_junction(
                             ' '.join(tokens[:3]),
