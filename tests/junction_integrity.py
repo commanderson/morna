@@ -27,44 +27,49 @@ parser.add_argument('-j','--junctions', metavar='<int>', type=int,
         )
 
 args = parser.parse_args()
-
+print "parsed args"
 conn=sqlite3.connect(args.database)
 c=conn.cursor()
+print "connection established"
 tables=[]
 for line in c.execute("SELECT name FROM sqlite_master WHERE type='table'"):
     tables.append(str(line[0]))
+print "tables populated"
 problem = False
 for table in sorted(tables):
-    sys.stdout.write("Checking table " + table + "\r")
+    sys.stdout.write("Checking table " + table + "\n")
+    last_one = 2
+    min_num_juncs = 0
+    num_pos_juncs = 0
+    num_covs = 0
     for juncs,covs in c.execute(("SELECT * FROM %s")%table):
-        num_juncs = 0
-        num_pos_juncs = 0
+        num_covs += len(covs.strip(',').split(','))
         shr_str=str(juncs)
-        last_one = 'x'
         while len(shr_str)>0:
-            m = re.search("(.*)([io])(\d+)$",shr_str)
-            num_juncs += int(m.groups()[2])
-            if m.groups()[1] == 'i':
-                bit='1'
-                num_pos_juncs += int(m.groups()[2])
+            m = re.search("^([io])(\d+)(.*)$",shr_str)
+            min_num_juncs += int(m.group(2))
+            if m.group(1) == 'i':
+                bit=1
+                num_pos_juncs += int(m.group(2))
             else:
-                bit='0'
+                bit=0
             if last_one==bit:
                 problem = True
-                print "\nERR:With len(shr_str) " + str(len(shr_str)) + " we found 2 " + bit + "s in a row"
+                print("\nERR:With len(shr_str) " + str(len(shr_str)) 
+                        + " we found 2 " + str(bit) + "s in a row")
             else:
                 last_one=bit
-            shr_str = m.groups()[0]
-        if not num_pos_juncs==len(covs.split(',')):
-		    print("\nERR:In table " + table + " found num_pos_juncs " 
-		            + str(num_pos_juncs) + " but len(covs.split(',')) " 
-		            + str(len(covs.split(','))))
-		    problem = True
-        if not num_juncs==args.junctions:
-		    print("\nERR:In table " + table + " found num_juncs "
-		            + str(num_juncs) + " which disagrees with arg junctions"
-		            + " (" + str(args.junctions)+")")
-		    problem = True
+            shr_str = m.group(3)
+    if not num_pos_juncs==num_covs:
+        print("\nERR:In table " + table + " found num_pos_juncs " 
+                + str(num_pos_juncs) + " but num_covs " 
+                + str(num_covs))
+        problem = True
+    if min_num_juncs>args.junctions:
+        print("\nERR:In table " + table + " found min_num_juncs "
+                + str(min_num_juncs) + " which is greater than arg junctions"
+                + " (" + str(args.junctions)+")")
+        problem = True
 		    
 if problem:
     print("\nERR(s) occurred; see above messages")

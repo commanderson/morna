@@ -29,15 +29,22 @@ parser.add_argument('-i','--intropolis', metavar='<file>', type=str,
             help=('path to gzipped file recording junctions across samples '
                   'in intropolis format')
         )
+parser.add_argument('-x', '--exclude-introp', action='store_const',
+            const=True,
+            default=False,
+            help='skip checking intropolis file (to quickly get db info)'
+        )
+
 
 args = parser.parse_args()
 print("starting analysis of " + args.intropolis + " for sample " 
             + str(args.sample))
 
-
-if True:
-    introp_bv = BitVector(size = 0)
-    introp_coverages = ""
+introp_bv = BitVector(size = 0)
+introp_coverages = ""
+full_length = 0
+if not args.exclude_introp:
+    
     with gzip.open(args.intropolis) as introp_handle:
         for i,line in enumerate(introp_handle):
             if (i % 100 == 0):
@@ -60,20 +67,26 @@ if True:
     introp_coverages = introp_coverages[:-1] #remove the trailing comma
     print "Intropolis Junctions"
     #print introp_bv           
-    print "Length: " + str(len(introp_bv))
+    full_length = len(introp_bv)
+    print "Length: " + str(full_length)
     print "Num. Present Junctions: " + str(sum(introp_bv))
     #print "Coverages: " + introp_coverages
     print("Length of coverages (should agree): " 
             + str(len(introp_coverages.split(','))))
-
+    if not (sum(introp_bv) == len(introp_coverages.split(','))):
+        print("ERR: The number of present junctions and the length "
+        + "of the coverages list don't match in INTROPOLOLIS-LIKE FILE!.")
 conn=sqlite3.connect(args.database)
 c=conn.cursor()
 
+db_rle_juncs=[]
+db_coverages=[]
 for line in c.execute(("SELECT * FROM sample_%d") % args.sample ):
-    db_rle_juncs = line[0]
-    db_coverages = line[1]
+    db_rle_juncs.append(line[0])
+    db_coverages.append(line[1])
 
-shr_str = db_rle_juncs
+shr_str = "".join(db_rle_juncs)
+db_coverages = "".join(db_coverages)
 db_bv=BitVector(size=0)
 while len(shr_str)>0:
     #print "starting with shr-str of:" +shr_str
@@ -93,12 +106,23 @@ while len(shr_str)>0:
     
 print "DB Junctions"
 #print db_bv
-print "Length: " + str(len(db_bv))
+db_length = len(db_bv)
+print "Pre-padding Length: " + str(len(db_bv))
+db_bv += BitVector(size = (full_length - db_length))
+print "Post-padding Length: " + str(len(db_bv))
 print "Num. Present Junctions: " + str(sum(db_bv))
-#print "Coverages: " + introp_coverages
+#print "Coverages: " + db_coverages
+db_coverages = db_coverages[:-1] #remove the trailing comma 
+
 print("Length of coverages (should agree): " 
         + str(len(db_coverages.split(','))))
-
+if not (sum(db_bv) == len(db_coverages.split(','))):
+    print("ERR: The number of present junctions and the length "
+    + "of the coverages list don't match in the DB.")
+if (db_coverages == introp_coverages):
+    print("The comma-separated coverage lists match")
+else:
+    print("ERR:The comma-separated coverage lists DO NOT match")
 if (db_bv == introp_bv):
     print("The junction-presenece bitvectors derived from the original file"
         +" and the DB match.")

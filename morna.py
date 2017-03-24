@@ -76,7 +76,7 @@ class MornaIndex(AnnoyIndex):
         for original class. 
     """
     def __init__(self, sample_count, basename, dim=3000, 
-                 sample_threshold=100, metafile=None):
+                 sample_threshold=100, metafile=None, buffer_size=1024):
         super(MornaIndex, self).__init__(dim, metric='angular')
         # Store the total number of samples represented in the index
         self.sample_count = sample_count
@@ -100,6 +100,7 @@ class MornaIndex(AnnoyIndex):
             os.remove(self.basename + '.junc.mor')
         except OSError:
             pass
+        self.buffer_size = buffer_size
         self.junction_conn = sqlite3.connect(self.basename + '.junc.mor')
         self.junction_conn.isolation_level = None
         self.junc_cursor = self.junction_conn.cursor()
@@ -134,15 +135,16 @@ class MornaIndex(AnnoyIndex):
                                          +"coverages TEXT)") 
                                             % sample_id)                
                    
-                #Each table needs initial entries!
-                #That way buffers can be added in update statements
+                #All start with buffers now
                 brand_new_junctions = "i1"
                 if self.junc_id >0:
                     brand_new_junctions = ("o" + str(self.junc_id) 
-                                            + brand_new_junctions)                
-                sql = ("INSERT INTO sample_%d VALUES (?, ?)" % sample_id)
-                self.junc_cursor.execute(sql, 
-                            [brand_new_junctions,str(coverages[i])])
+                                            + brand_new_junctions)
+                
+                #self.junc_cursor.execute(sql, 
+                #            [brand_new_junctions,str(coverages[i])])
+                self.jns_write_buffer[sample_id].append(brand_new_junctions)
+                self.cov_write_buffer[sample_id].append(coverages[i])
                 
             else: #if there is already a table for this sample
                 #this will imply self.last_present_junction[sample_id] isn't -1
@@ -159,20 +161,26 @@ class MornaIndex(AnnoyIndex):
                         self.jns_write_buffer[sample_id][-1]=(new_terminus)
                         self.cov_write_buffer[sample_id].append(coverages[i])
                     #Otherwise, we actually have to update the run in db :/    
-                    #This is an edge case that should almost never apply, 
+                    #This is an edge case that rarely applies, 
                     #but it's definitely the worst case performance-wise.
                     else:
                         current_junctions=""
-                        for res in self.junc_cursor.execute(
-                        ("SELECT junctions FROM sample_%d") % sample_id):    
-                            current_junctions = res[0]
+                        self.junc_cursor.execute(("SELECT ROWID FROM sample_%d"
+                                 +" ORDER BY ROWID DESC LIMIT 1") % sample_id)
+                        last_rowid = self.junc_cursor.fetchone()[0]
+                        self.junc_cursor.execute(
+                        ("SELECT junctions FROM sample_%d "
+                                + "ORDER BY ROWID DESC LIMIT 1") % sample_id)
+                        current_junctions = self.junc_cursor.fetchone()[0]
                         m = re.search("(.*?)i(\d+)$", current_junctions)
                         current_run_length = int(m.group(2))
                         new_junctions = (m.group(1) + 'i' +
                                          str(current_run_length + 1))
+                        
                         sql = (("UPDATE sample_%d SET junctions = ?," 
-                                + " coverages = coverages||','||?") 
-                                                    % sample_id)
+                                + " coverages = coverages||?||','"
+                                + "WHERE ROWID = %d") 
+                                                    % (sample_id,last_rowid))
                         self.junc_cursor.execute(sql,
                             [new_junctions,coverages[i]])
                     
@@ -186,16 +194,18 @@ class MornaIndex(AnnoyIndex):
                 
                 #We will write buffer contents when buffer gets too big,
                 #and then empty the sample's buffer
-                if (sys.getsizeof(self.jns_write_buffer[sample_id]) > 1024):
+                if (sys.getsizeof(self.jns_write_buffer[sample_id]) 
+                                                > self.buffer_size):
                     #print "let's write buffer for sample " + str(sample_id)
+                    
                     sql = ((
-                    "UPDATE sample_%d SET junctions = junctions||?, "
-                    + "coverages = coverages||','||?")
+                    "INSERT INTO sample_%d VALUES (?, ?)")
                     % sample_id)
+                    #TODO: format juncs buffer entries as always having an oXiX format, so each has a corresponding single cov entry?
                     self.junc_cursor.execute(sql, 
                             ["".join(self.jns_write_buffer[sample_id]),
-                            ",".join(str(c) for c in         
-                                    self.cov_write_buffer[sample_id])
+                            (",".join(str(c) for c in         
+                                    self.cov_write_buffer[sample_id]) + ",")
                             ]
                     
                     )
@@ -275,40 +285,28 @@ class MornaIndex(AnnoyIndex):
             cPickle.dump(self.sample_frequencies, pickle_stream,
                          cPickle.HIGHEST_PROTOCOL)
         #Now, deal with junction db:
-        #We have to pad out all junction lists with runs of 0s,
-        #except the ones updated in the last junction addition
-        for sample in self.last_present_junction.keys():
+        #We don't need to pad out all junction lists with runs of 0s,
+        #we just assume all junctions after the end of the coverage are 0s
+        for sample_id in self.last_present_junction.keys():
             #First, add terminal 0s to each buffer (if needed)
-            if self.last_present_junction[sample]<self.junc_id:
-                self.jns_write_buffer[sample].append('o'+str(self.junc_id
-                                - self.last_present_junction[sample]))
+            #if self.last_present_junction[sample_id]<self.junc_id:
+            #    self.jns_write_buffer[sample_id].append('o'+str(self.junc_id
+            #                    - self.last_present_junction[sample_id]))
                 #print("gonna add " + str(additional_junctions))
             
             #then write the buffer out, skipping only empty buffers
             #(NOTE: Must use different sql if there are no coverages to add,
             #aka the only-terminal-0s case)
-            if (self.jns_write_buffer[sample]):
-                if (self.cov_write_buffer[sample]):
-                    sql = ((
-                    "UPDATE sample_%d SET junctions = junctions||?, "
-                    + "coverages = coverages||','||?")
-                    % sample)
-                    self.junc_cursor.execute(sql, 
-                            ["".join(self.jns_write_buffer[sample]),
-                            ",".join(str(c) for c in         
-                                    self.cov_write_buffer[sample])
-                            ]
-                    )
-                    self.cov_write_buffer[sample] = []
-
-                else:
-                    sql = ((
-                    "UPDATE sample_%d SET junctions = junctions||?")
-                    % sample)
-                    self.junc_cursor.execute(sql, 
-                            ["".join(self.jns_write_buffer[sample])])
-                    
-                self.jns_write_buffer[sample] = []
+            if (self.jns_write_buffer[sample_id]):
+                sql = ((
+                    "INSERT INTO sample_%d VALUES (?, ?)")
+                    % sample_id)
+                self.junc_cursor.execute(sql, 
+                        ["".join(self.jns_write_buffer[sample_id]),
+                        (",".join(str(c) for c in         
+                                self.cov_write_buffer[sample_id]) + ",")
+                        ]
+                )
                 
         #with that, we have finished writing our run-length-encoded junctions!
         self.junc_cursor.execute("COMMIT")
@@ -641,6 +639,14 @@ if __name__ == '__main__':
             help=('minimum number of samples in which a junction should '
                   'appear for it to be included in morna index')
         )
+    index_parser.add_argument('-b', '--buffer-size', metavar='<int>',
+            type=int,
+            required=False,
+            default=1024,
+            help=('size in bytes of each entry (one per sample) in the '
+             'buffer for writing per-sample junctions to the' 
+             '.juncs.mor database')
+        )
     index_parser.add_argument('-v', '--verbose', action='store_const',
             const=True,
             default=False,
@@ -712,17 +718,18 @@ if __name__ == '__main__':
         morna_index = MornaIndex(args.sample_count, args.basename, 
                                     dim=args.features,
                                     sample_threshold=args.sample_threshold, 
-                                    metafile=args.metafile)
+                                    metafile=args.metafile,
+                                    buffer_size=args.buffer_size)
         with gzip.open(args.intropolis) as introp_file_handle:
             if args.verbose:
                 for i, line in enumerate(introp_file_handle):
                     if i % 1000 == 0:
-                        sys.stdout.write(str(i) + " lines into index making\n")
+                        sys.stdout.write(str(i) + " lines into index making\r")
                     tokens = line.strip().split('\t')
                     morna_index.add_junction(
                             ' '.join(tokens[:3]),
                             map(int, tokens[-2].split(',')), # samples
-                            map(int, tokens[-1].split(',')) # coverages
+                            map(int, tokens[-1].split(',')), # coverages
                         )
             else:
                 for line in introp_file_handle:
