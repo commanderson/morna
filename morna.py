@@ -95,22 +95,24 @@ class MornaIndex(AnnoyIndex):
         # Minimum number of samples in which junction should be found
         self.sample_threshold = sample_threshold
         # list of junction ids per sample database connection;
-        #Will overwrite old DB if it already exists!
-        try:
-            os.remove(self.basename + '.junc.mor')
-        except OSError:
-            pass
+        #Will remove old DB if it already exists!
+        for shard_id in range(0,100):
+            try:
+                os.remove(self.basename  + ".sh" + str(shard_id)+".junc.mor")
+            except OSError:
+                pass
         self.buffer_size = buffer_size
-        self.junction_conn = sqlite3.connect(self.basename + '.junc.mor')
-        self.junction_conn.isolation_level = None
-        self.junc_cursor = self.junction_conn.cursor()
-        self.junc_cursor.execute("BEGIN")
+        self.junction_conns={}
+        #self.junction_conn = sqlite3.connect(self.basename + '.junc.mor')
+        #self.junction_conn.isolation_level = None
+        #self.junc_cursor = self.junction_conn.cursor()
+        #self.junc_cursor.execute("BEGIN")
         self.junc_id = -1
         self.last_present_junction = defaultdict(lambda:-1)
         self.jns_write_buffer = defaultdict(list)
         self.cov_write_buffer = defaultdict(list)
      
-    @profile   
+    #@profile   
     def add_junction(self, junction, samples, coverages):
         """ Adds contributions of a single junction to feature vectors
             and also constructs junctions-by-sample database.
@@ -126,11 +128,24 @@ class MornaIndex(AnnoyIndex):
         
         self.junc_id += 1
         
+        
         for i,sample_id in enumerate(samples):
+        
+            try:
+                shard_id = mmh3.hash(str(sample_id)) % 100
+                junc_cursor = self.junction_conns[shard_id].cursor()
+            except KeyError:
+                #Make the db
+                self.junction_conns[shard_id] = sqlite3.connect(self.basename 
+                                           + ".sh" + str(shard_id)+ ".junc.mor")
+                self.junction_conns[shard_id].isolation_level = None
+                junc_cursor = self.junction_conns[shard_id].cursor()
+                junc_cursor.execute("BEGIN")
+        
             if self.last_present_junction[sample_id] == -1: 
                 #if this is the first time we've seen this sample,
                 #we'll have to make a table for it.
-                self.junc_cursor.execute(("CREATE TABLE sample_%d "         
+                junc_cursor.execute(("CREATE TABLE sample_%d "         
                                         +"(junctions TEXT,"
                                          +"coverages TEXT)") 
                                             % sample_id)                
@@ -165,13 +180,13 @@ class MornaIndex(AnnoyIndex):
                     #but it's definitely the worst case performance-wise.
                     else:
                         current_junctions=""
-                        self.junc_cursor.execute(("SELECT ROWID FROM sample_%d"
+                        junc_cursor.execute(("SELECT ROWID FROM sample_%d"
                                  +" ORDER BY ROWID DESC LIMIT 1") % sample_id)
-                        last_rowid = self.junc_cursor.fetchone()[0]
-                        self.junc_cursor.execute(
+                        last_rowid = junc_cursor.fetchone()[0]
+                        junc_cursor.execute(
                         ("SELECT junctions FROM sample_%d "
                                 + "ORDER BY ROWID DESC LIMIT 1") % sample_id)
-                        current_junctions = self.junc_cursor.fetchone()[0]
+                        current_junctions = junc_cursor.fetchone()[0]
                         m = re.search("(.*?)i(\d+)$", current_junctions)
                         current_run_length = int(m.group(2))
                         new_junctions = (m.group(1) + 'i' +
@@ -181,7 +196,7 @@ class MornaIndex(AnnoyIndex):
                                 + " coverages = coverages||?||','"
                                 + "WHERE ROWID = %d") 
                                                     % (sample_id,last_rowid))
-                        self.junc_cursor.execute(sql,
+                        junc_cursor.execute(sql,
                             [new_junctions,coverages[i]])
                     
                 #Otherwise, provided we're not on a run of 1s
@@ -202,7 +217,7 @@ class MornaIndex(AnnoyIndex):
                     "INSERT INTO sample_%d VALUES (?, ?)")
                     % sample_id)
                     #TODO: format juncs buffer entries as always having an oXiX format, so each has a corresponding single cov entry?
-                    self.junc_cursor.execute(sql, 
+                    junc_cursor.execute(sql, 
                             ["".join(self.jns_write_buffer[sample_id]),
                             (",".join(str(c) for c in         
                                     self.cov_write_buffer[sample_id]) + ",")
@@ -287,6 +302,9 @@ class MornaIndex(AnnoyIndex):
         #Now, deal with junction db:
         #We don't need to pad out all junction lists with runs of 0s,
         #we just assume all junctions after the end of the coverage are 0s
+        #We know all shards have been created now,
+        # so getting shard cursor is easier
+        
         for sample_id in self.last_present_junction.keys():
             #First, add terminal 0s to each buffer (if needed)
             #if self.last_present_junction[sample_id]<self.junc_id:
@@ -294,14 +312,18 @@ class MornaIndex(AnnoyIndex):
             #                    - self.last_present_junction[sample_id]))
                 #print("gonna add " + str(additional_junctions))
             
-            #then write the buffer out, skipping only empty buffers
+            shard_id = mmh3.hash(str(sample_id)) % 100
+            junc_cursor = self.junction_conns[shard_id].cursor()
+            
+            #Write the buffer out, skipping only empty buffers
             #(NOTE: Must use different sql if there are no coverages to add,
             #aka the only-terminal-0s case)
+            
             if (self.jns_write_buffer[sample_id]):
                 sql = ((
                     "INSERT INTO sample_%d VALUES (?, ?)")
                     % sample_id)
-                self.junc_cursor.execute(sql, 
+                junc_cursor.execute(sql, 
                         ["".join(self.jns_write_buffer[sample_id]),
                         (",".join(str(c) for c in         
                                 self.cov_write_buffer[sample_id]) + ",")
@@ -309,10 +331,10 @@ class MornaIndex(AnnoyIndex):
                 )
                 
         #with that, we have finished writing our run-length-encoded junctions!
-        self.junc_cursor.execute("COMMIT")
-        self.junction_conn.execute("VACUUM")
-        self.junction_conn.commit()
-        self.junction_conn.close()
+        for conn in self.junction_conns.values():
+            conn.commit()
+            conn.execute("VACUUM")
+            conn.close()
         
         if self.metafile:
             #Parse file at metafaile and save it into a metadata db
@@ -707,6 +729,7 @@ if __name__ == '__main__':
                                 str(i) + " lines into sample count, " 
                                 + str(len(samples)) + " samples so far.\r"
                             )
+                            sys.stdout.flush()
                         samples.update(line.split('\t')[-2].split(','))
                 else:
                     for i, line in enumerate(introp_file_handle):
@@ -725,6 +748,7 @@ if __name__ == '__main__':
                 for i, line in enumerate(introp_file_handle):
                     if i % 1000 == 0:
                         sys.stdout.write(str(i) + " lines into index making\r")
+                        sys.stdout.flush()
                     tokens = line.strip().split('\t')
                     morna_index.add_junction(
                             ' '.join(tokens[:3]),
@@ -789,6 +813,7 @@ if __name__ == '__main__':
                     if (i % 100 == 0):
                         sys.stderr.write( str(i) 
                                          + " junctions into query sample\r")
+                        sys.stderr.flush()
                     searcher.update_query(junction)
                     if (i == backoff):
                         backoff += backoff
@@ -839,6 +864,7 @@ if __name__ == '__main__':
                     if (i % 100 == 0):
                         sys.stderr.write( str(i) 
                                          + " junctions into query sample\r")
+                        sys.stdout.flush()
                     searcher.update_query(junction)
             else:
                 for i, junction in enumerate(junction_generator):

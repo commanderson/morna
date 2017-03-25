@@ -27,17 +27,18 @@ parser.add_argument('-j','--junctions', metavar='<int>', type=int,
         )
 
 args = parser.parse_args()
-print "parsed args"
+#print "parsed args"
 conn=sqlite3.connect(args.database)
 c=conn.cursor()
-print "connection established"
+print "connection established to " + args.database
 tables=[]
 for line in c.execute("SELECT name FROM sqlite_master WHERE type='table'"):
     tables.append(str(line[0]))
-print "tables populated"
+#print "tables populated"
 problem = False
 for table in sorted(tables):
-    sys.stdout.write("Checking table " + table + "\n")
+    sys.stdout.write("Checking table " + table + "\r")
+    sys.stdout.flush()
     last_one = 2
     min_num_juncs = 0
     num_pos_juncs = 0

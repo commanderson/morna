@@ -9,6 +9,7 @@ junctions-by-sample morna db matches up.
 
 import argparse
 import gzip
+import mmh3
 import re
 import sqlite3
 import sys
@@ -18,7 +19,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('-d','--database', metavar='<file>', type=str,
             required=True,
             help=('path to junction database file for which you wish'
-                  'to test the sample')
+                  'to test the sample; if sharded provide only basename!')
         )
 parser.add_argument('-s','--sample', metavar='<int>', type=int,
             required=True,
@@ -28,6 +29,12 @@ parser.add_argument('-i','--intropolis', metavar='<file>', type=str,
             required=True,
             help=('path to gzipped file recording junctions across samples '
                   'in intropolis format')
+        )
+parser.add_argument('-f', '--sharded', action='store_const',
+            const=True,
+            default=False,
+            help='checking sharded db; -d argument is basename and shard db '
+                 'will be found automatically'
         )
 parser.add_argument('-x', '--exclude-introp', action='store_const',
             const=True,
@@ -76,6 +83,11 @@ if not args.exclude_introp:
     if not (sum(introp_bv) == len(introp_coverages.split(','))):
         print("ERR: The number of present junctions and the length "
         + "of the coverages list don't match in INTROPOLOLIS-LIKE FILE!.")
+        
+if args.sharded:
+    shard_id = mmh3.hash(str(args.sample)) % 100
+    print "shard_id is " + str(shard_id)
+    args.database = args.database + ".sh" + str(shard_id) + ".junc.mor"
 conn=sqlite3.connect(args.database)
 c=conn.cursor()
 
