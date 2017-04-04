@@ -15,6 +15,33 @@ import sqlite3
 import sys
 from BitVector import BitVector
 
+def isbase64(s):
+    """ Checks whether a string is a valid base64 number 
+        using 0-9 as digits 0-9 and characters ':' thru 'o'
+        as digits 10-63
+        
+        s: string of base 64 number in format above to increment
+        
+        return value: boolean True (if valid by format) or False
+    """
+    for i in s:
+        if ord(i) < 48 or ord(i) > 111:
+            return False
+    return True
+    
+def decode_64(s):
+    """ Decodes an input base 64 number formatted
+        using 0-9 as digits 0-9 and characters ':' thru 'o'
+        as digits 10-63 into decimal int
+
+        s: string of base 64 number in format above to convert
+        
+        return value: int decimal number form of input
+    """
+    return sum([(ord(s[idx])-48)
+                    *(64**(len(s)-idx-1)) for idx in (xrange(len(s)))])
+
+
 parser = argparse.ArgumentParser()
 parser.add_argument('-d','--database', metavar='<file>', type=str,
             required=True,
@@ -55,7 +82,8 @@ if not args.exclude_introp:
     with gzip.open(args.intropolis) as introp_handle:
         for i,line in enumerate(introp_handle):
             if (i % 100 == 0):
-                print "On junction " + str(i)
+                sys.stdout.write("On junction " + str(i) + "\r")
+                sys.stdout.flush()
             line_pieces = line.split()
     
             samples_with_junction = (line_pieces[6].split(','))
@@ -102,19 +130,19 @@ db_coverages = "".join(db_coverages)
 db_bv=BitVector(size=0)
 while len(shr_str)>0:
     #print "starting with shr-str of:" +shr_str
-    m = re.search("(.*)([io])(\d+)$",shr_str)
-    if m.groups()[1] == 'i':
+    m = re.search("^([!.])([0-o]+)(.*)$",shr_str)
+    if m.group(1) == '!':
             bit='1'
-    elif m.groups()[1] == 'o':
+    elif m.group(1) == '.':
             bit='0'
     else: 
-        raise ValueError("Found non i-o bit in parsing " + shr_str)
+        raise ValueError("Found '" + m.group(1) 
+                + "', a non '!.' bit in parsing " + shr_str)
         
-    digit = m.groups()[2]
-    if not (m.groups()[2].isdigit()):
-        raise ValueError("Found non digit runlength in parsing " + shr_str)
-    db_bv = BitVector(bitstring=(int(m.groups()[2])*bit)) + db_bv
-    shr_str = m.groups()[0]
+    if not isbase64(m.group(2)):
+        raise ValueError("Found invalid runlength '" +  m.group(2) + "' in parsing " + shr_str)
+    db_bv =  db_bv + BitVector(bitstring=(decode_64(m.group(2))*bit)) 
+    shr_str = m.group(3)
     
 print "DB Junctions"
 #print db_bv

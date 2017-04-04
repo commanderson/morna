@@ -29,14 +29,44 @@ patterns similar to those in a query sample.
 """
 
             
-def euclidean_distance(v1, v2):
-    """ Calculate the eculcidean distance between 2 vectors/points
+def encode_64(num):
+    """ Encodes an input number as a base 64 number,
+        using 0-9 as digits 0-9 and characters ':' thru 'o'
+        as digits 10-63
+
+        num: integer number to change to base 64
+        
+        return value: string of base 64 number in format above
+    """
+    s = [chr(48 + num % 64)]
+    num /= 64
+    while num > 0:
+        s.append(chr(48 + num % 64))
+        num /= 64
+    return ''.join(s[::-1])
+
+def decode_64(s):
+    """ Decodes an input base 64 number formatted
+        using 0-9 as digits 0-9 and characters ':' thru 'o'
+        as digits 10-63 into decimal int
+
+        s: string of base 64 number in format above to convert
+        
+        return value: int decimal number form of input
+    """
+    return sum([(ord(s[idx])-48)
+                    *(64**(len(s)-idx-1)) for idx in (xrange(len(s)))])
     
-        v1 and v2: vectors/points of matching length
-    """ 
-    distance = [(a - b)**2 for a, b in zip(v1, v2)]
-    distance = sqrt(sum(distance))
-    return distance
+def increment_64(s):
+    """ Increments an input base 64 number formatted
+        using 0-9 as digits 0-9 and characters ':' thru 'o'
+        as digits 10-63 into decimal int
+
+        s: string of base 64 number in format above to increment
+        
+        return value: string of base 64 number s + 1 in format above
+    """
+    return encode_64(decode_64(s) + 1)
     
 def magnitude(v1):
     """ Calculate the magnitude of a vector
@@ -103,6 +133,7 @@ class MornaIndex(AnnoyIndex):
                 pass
         self.buffer_size = buffer_size
         self.junction_conns={}
+        self.cursors={}
         #self.junction_conn = sqlite3.connect(self.basename + '.junc.mor')
         #self.junction_conn.isolation_level = None
         #self.junc_cursor = self.junction_conn.cursor()
@@ -133,13 +164,16 @@ class MornaIndex(AnnoyIndex):
         
             try:
                 shard_id = mmh3.hash(str(sample_id)) % 100
-                junc_cursor = self.junction_conns[shard_id].cursor()
+                
+                #junc_cursor = self.junction_conns[shard_id].cursor()
+                junc_cursor = self.cursors[shard_id]
             except KeyError:
                 #Make the db
                 self.junction_conns[shard_id] = sqlite3.connect(self.basename 
                                            + ".sh" + str(shard_id)+ ".junc.mor")
                 self.junction_conns[shard_id].isolation_level = None
-                junc_cursor = self.junction_conns[shard_id].cursor()
+                self.cursors[shard_id] = self.junction_conns[shard_id].cursor()
+                junc_cursor = self.cursors[shard_id]
                 junc_cursor.execute("BEGIN")
         
             if self.last_present_junction[sample_id] == -1: 
@@ -151,10 +185,10 @@ class MornaIndex(AnnoyIndex):
                                             % sample_id)                
                    
                 #All start with buffers now
-                brand_new_junctions = "i1"
+                brand_new_junctions = "!1"
                 if self.junc_id >0:
-                    brand_new_junctions = ("o" + str(self.junc_id) 
-                                            + brand_new_junctions)
+                    brand_new_junctions = ("." + encode_64(self.junc_id) 
+                                            + "!1")
                 
                 #self.junc_cursor.execute(sql, 
                 #            [brand_new_junctions,str(coverages[i])])
@@ -168,10 +202,10 @@ class MornaIndex(AnnoyIndex):
                     #If so, we need to get the current run length
                     #If there's stuff in the buffer, we can check there
                     if (self.jns_write_buffer[sample_id]):
-                        m = re.search("i(\d+)$",
+                        m = re.search("!([0-o]+)$",
                                   self.jns_write_buffer[sample_id][-1])
-                        current_run_length = int(m.group(1))
-                        new_terminus = ('i' + str(current_run_length + 1))
+                        new_run_length = increment_64(m.group(1))
+                        new_terminus = ('!' + new_run_length)
                         #and even update the run itself in buffer
                         self.jns_write_buffer[sample_id][-1]=(new_terminus)
                         self.cov_write_buffer[sample_id].append(coverages[i])
@@ -187,10 +221,10 @@ class MornaIndex(AnnoyIndex):
                         ("SELECT junctions FROM sample_%d "
                                 + "ORDER BY ROWID DESC LIMIT 1") % sample_id)
                         current_junctions = junc_cursor.fetchone()[0]
-                        m = re.search("(.*?)i(\d+)$", current_junctions)
-                        current_run_length = int(m.group(2))
-                        new_junctions = (m.group(1) + 'i' +
-                                         str(current_run_length + 1))
+                        m = re.search("(.*?)!([0-o]+)$", current_junctions)
+                        new_run_length = increment_64(m.group(2))
+                        new_junctions = (m.group(1) + '!' +
+                                         new_run_length)
                         
                         sql = (("UPDATE sample_%d SET junctions = ?," 
                                 + " coverages = coverages||?||','"
@@ -202,9 +236,9 @@ class MornaIndex(AnnoyIndex):
                 #Otherwise, provided we're not on a run of 1s
                 else: 
                     self.jns_write_buffer[sample_id].append(
-                            "o" + str((self.junc_id 
+                            "." + encode_64((self.junc_id 
                                 - self.last_present_junction[sample_id]) - 1))
-                    self.jns_write_buffer[sample_id].append("i1")
+                    self.jns_write_buffer[sample_id].append("!1")
                     self.cov_write_buffer[sample_id].append(coverages[i])
                 
                 #We will write buffer contents when buffer gets too big,
@@ -216,7 +250,9 @@ class MornaIndex(AnnoyIndex):
                     sql = ((
                     "INSERT INTO sample_%d VALUES (?, ?)")
                     % sample_id)
-                    #TODO: format juncs buffer entries as always having an oXiX format, so each has a corresponding single cov entry?
+                    #TODO: format juncs buffer entries as always having an .X!X 
+                    #format, so each has a corresponding single cov entry? Right 
+                    #now we are content with variable length rows in db
                     junc_cursor.execute(sql, 
                             ["".join(self.jns_write_buffer[sample_id]),
                             (",".join(str(c) for c in         
@@ -306,18 +342,19 @@ class MornaIndex(AnnoyIndex):
         # so getting shard cursor is easier
         
         for sample_id in self.last_present_junction.keys():
-            #First, add terminal 0s to each buffer (if needed)
+            ##First, add terminal 0s to each buffer (if needed)
             #if self.last_present_junction[sample_id]<self.junc_id:
             #    self.jns_write_buffer[sample_id].append('o'+str(self.junc_id
             #                    - self.last_present_junction[sample_id]))
                 #print("gonna add " + str(additional_junctions))
             
             shard_id = mmh3.hash(str(sample_id)) % 100
-            junc_cursor = self.junction_conns[shard_id].cursor()
+            junc_cursor = self.cursors[shard_id]
             
-            #Write the buffer out, skipping only empty buffers
-            #(NOTE: Must use different sql if there are no coverages to add,
-            #aka the only-terminal-0s case)
+            #Write each buffer out, skipping only empty buffers
+            #(NOTE: Not adding terminal 0s just infeerring them. If we did want 
+            #terminal 0s, must use different sql if there are no coverages to 
+            #add, aka the only-terminal-0s case)
             
             if (self.jns_write_buffer[sample_id]):
                 sql = ((

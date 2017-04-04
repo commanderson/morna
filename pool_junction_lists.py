@@ -2,6 +2,7 @@
 """
 pool_junction_lists
 
+Parses a SORTED combined junction list with final column 
 Combines junction data from input list of intropolis-like files to 
 create a single pooled junctions file from which 
 a master morna index can be made
@@ -13,54 +14,70 @@ import gzip
 import sys
 
 parser = argparse.ArgumentParser()
-parser.add_argument('-f','--files', nargs='+', metavar='<files>', type=str,
+parser.add_argument('-i', '--input', metavar='<file>', type=str,
             required=True,
-            help=('paths to gzipped files recording junctions across samples '
-                  'in intropolis format, space separated')
+            help='path to gzipped input file of combined junctions'
+            'eg: sorted_cjs.tsv.gz'
+        )
+parser.add_argument('-s','--sources', nargs='+', metavar='<files>', type=str,
+            required=True,
+            help=('list of sources which must exactly match the last column '
+                  'values of the input file; this helps align the sample ids'
+                  'eg: tcga sra gtex')
+        )
+parser.add_argument('-n', '--increment', metavar='<int>', type=int,
+            required=True,
+            help='since each input file has its own integer sample ids '
+            'which start from 0, increment the ids in each subsequent file '
+            'by this much for each file it is after the first, which must '
+            'be made enough to separate the sample id ranges entirely'
+            'eg: since TCGA has 11349 samples, GTEX 9662 and SRA 20854,'
+            '25000 is an appropriate and readable increment'
         )
 parser.add_argument('-o', '--outfile', metavar='<file>', type=str,
             required=True,
-            help='path to output file'
+            help='path to output file, which will be gzipped'
+            'eg: pooled_junctions.tsv.gz'
         )
 
-junction_line_offsets = {}
+#junction_line_offsets = {}
+junction_presence = {}
+stored_tokens=""
 
 if __name__ == '__main__':
     args = parser.parse_args()
-    with open(args.outfile, "w+") as output_handle:
-        current_offset = 0
-        for numfile,file in enumerate(args.files):
-            output_handle.seek(0)
-            with gzip.open(file) as input_handle:
-                for i, line in enumerate(input_handle):
-                    if (i % 100 == 0):
-                        sys.stdout.write(str(i) 
-                            + " lines into file " + file + "\r")
-                    tokens = line.strip().split("\t")
-                    if numfile == 0: #always just spit first input into output
-                        output_handle.write(line)
-                        
-                        #out.write(" ".join(
-                        #                    [" ".join(tokens[:3]),
-                        #                    tokens[-2],
-                        #                    tokens[-1]]))
-                        #out.write"\n"
-                        junction_line_offsets[
-                                    ' '.join(tokens[:3])] = current_offset
-                        current_offset += len(line)
-                        
-                    else: #
-                        try:
-                            output_handle.seek(
-                                junction_line_offsets[' '.join(tokens[:3])])
-                            print("already have line for \n" 
-                                        + ' '.join(tokens[:3]))
-                            print("it's: \n" + output_handle.readline())
-                        except KeyError:
-                            output_handle.seek(current_offset)
-                            output_handle.write(line)
-                            junction_line_offsets[
-                                    ' '.join(tokens[:3])] = current_offset
-                            current_offset += len(line)
+    
+    #this sort offset dictionary is used to alter sample ids
+    source_offset = {}
+    for i,source in enumerate(args.sources):
+        source_offset[source] = i * args.increment
+        
+    with gzip.open(args.input) as input_handle,\
+     gzip.open(args.outfile, "w") as out_handle:
+        for i, line in enumerate(input_handle):
+            if (i % 1000 == 0):
+                sys.stdout.write(str(i) 
+                    + " lines into combined file " + args.input + "\r")
+                sys.stdout.flush()
+            tokens = line.strip().split("\t")
+            #we'll have to adjust the sample ids by an appropriate offset
+            offset = source_offset[tokens[-1]]
+            #so break them out into numbers, add offset, and back to string!
+            tokens[-3] = ",".join(str(int(x) + offset) 
+                    for x in tokens[-3].split(","))
+                    
+            #if this line isn't the same junction as the stored, write stored
+            if stored_tokens[:3] != tokens[:3]:
+                #write accumulated junction line, leaving out source indicator
+                if i>0:
+                    out_handle.write("\t".join(stored_tokens[:-1])+"\n") 
+                #and move current tokens into stored
+                stored_tokens = tokens
                 
-                print "-----------------------------"
+            #otherwise, this is a continuation of a junction from another source
+            else:
+                #add newly offset sample ids and coverages
+                stored_tokens[-3] = stored_tokens[-3] + "," + tokens[-3]
+                stored_tokens[-2] = stored_tokens[-2] + "," + tokens[-2]
+        #finish off with final outfile write
+        out_handle.write("\t".join(stored_tokens[:-1])+"\n")
