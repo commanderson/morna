@@ -25,6 +25,17 @@ parser.add_argument('-s','--sources', nargs='+', metavar='<files>', type=str,
                   'values of the input file; this helps align the sample ids'
                   'eg: tcga sra gtex')
         )
+parser.add_argument('-m','--metafiles', nargs='+', metavar='<files>', type=str,
+            required=False,
+            default=None,
+            help=('list of metadata files matching up with sources in order;'
+                  'must have tab separated first field with sample id, then'
+                  'remainder of line is any and all metadata that should be'
+                  'associated with that sample id, such as accession number'
+                  'and other useful details to include with search results.'
+                  'If included, output will include a combined metadata file'
+                  'named source1_source2..._metadata.tsv ')
+        )
 parser.add_argument('-n', '--increment', metavar='<int>', type=int,
             required=True,
             help='since each input file has its own integer sample ids '
@@ -39,6 +50,7 @@ parser.add_argument('-o', '--outfile', metavar='<file>', type=str,
             help='path to output file, which will be gzipped'
             'eg: pooled_junctions.tsv.gz'
         )
+
 
 #junction_line_offsets = {}
 junction_presence = {}
@@ -81,3 +93,12 @@ if __name__ == '__main__':
                 stored_tokens[-2] = stored_tokens[-2] + "," + tokens[-2]
         #finish off with final outfile write
         out_handle.write("\t".join(stored_tokens[:-1])+"\n")
+
+if len(args.metafiles) > 0:
+    with open("_".join(args.sources) + "_metadata.tsv","w") as meta_out:
+        for i,file in enumerate(args.metafiles):
+            with open(file) as metafile:
+                for line in metafile:
+                    tokens = line.strip().split("\t")
+                    tokens[0]= str(int(tokens[0]) + i * increment)
+                    meta_out.write("\t".join(tokens) + "\n")
