@@ -7,6 +7,11 @@ intropolis junction vectors by sample and uses Spotify's annoy library for
 obtaining nearest neighbors.
 
 Requires mmh3 (pip install mmh3) and Spotify's annoy (pip install annoy)
+
+
+morna index
+
+
 """
 import argparse
 import bisect
@@ -16,6 +21,7 @@ import mmh3
 import os
 import re
 import sqlite3
+import subprocess
 import sys
 from annoy import AnnoyIndex
 from BitVector import BitVector
@@ -95,12 +101,17 @@ def cosine_distance(v1,v2):
 class MornaIndex(AnnoyIndex):
     """ Augments AnnoyIndex to accommodate parameters needed by morna
 
-        Four index files are written when invoking save(): an Annoy index
+        Four indexes are written when invoking save(): an Annoy index
         (basename.annoy.mor), a dictionary that maps each junction to the 
         number of samples in which it's found (basename.freq.mor), a stats 
-        file including the total number of samples (basename.stats.mor),
-        and a sqlite database containing metadata info associated with 
-        sample ids.
+        file including the total number of samples and the size of the 
+        hashed feature space (basename.stats.mor), and a 100-sharded 
+        sqlite database mapping each sample to the junctions it contained 
+        and their repective read coverages (basename.shXX.junc.mor).
+        An additional, optional index in the form of a sqlite database 
+        containing metadata info associated with sample ids is included if 
+        the -m (--metadata) option is specified with an appropriately-
+        formatted metadata file.
 
         See https://github.com/spotify/annoy/blob/master/annoy/__init__.py
         for original class. 
@@ -128,7 +139,8 @@ class MornaIndex(AnnoyIndex):
         #Will remove old DB if it already exists!
         for shard_id in range(0,100):
             try:
-                os.remove(self.basename  + ".sh" + str(shard_id)+".junc.mor")
+                os.remove(self.basename  + ".sh" 
+                + format(shard_id, '02d') + ".junc.mor")
             except OSError:
                 pass
         self.buffer_size = buffer_size
@@ -170,7 +182,8 @@ class MornaIndex(AnnoyIndex):
             except KeyError:
                 #Make the db
                 self.junction_conns[shard_id] = sqlite3.connect(self.basename 
-                                           + ".sh" + str(shard_id)+ ".junc.mor")
+                                           + ".sh" + format(shard_id, '02d') 
+                                           + ".junc.mor")
                 self.junction_conns[shard_id].isolation_level = None
                 self.cursors[shard_id] = self.junction_conns[shard_id].cursor()
                 junc_cursor = self.cursors[shard_id]
@@ -215,7 +228,7 @@ class MornaIndex(AnnoyIndex):
                     else:
                         current_junctions=""
                         junc_cursor.execute(("SELECT ROWID FROM sample_%d"
-                                 +" ORDER BY ROWID DESC LIMIT 1") % sample_id)
+                                 + " ORDER BY ROWID DESC LIMIT 1") % sample_id)
                         last_rowid = junc_cursor.fetchone()[0]
                         junc_cursor.execute(
                         ("SELECT junctions FROM sample_%d "
@@ -649,6 +662,11 @@ def add_search_parameters(subparser):
             help='search for exact nearest neighbor to query within morna index'
                  'rather than using annoy hyperplane division algorithm'
         )
+    subparser.add_argument('-r','--results', metavar='<int>', type=int,
+            required=False,
+            default=20,
+            help=('the number of nearest neighbor results to return')
+        )
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=_help_intro, 
@@ -752,6 +770,12 @@ if __name__ == '__main__':
             default=None,
             help='additional arguments to pass to aligner; use quote string'
         )
+    align_parser.add_argument('--junction-filter', type=str, required=False,
+        default='.05,5',
+        help='Two part junction filter settings separated by comma. Only retain' 
+             'junctions for alignment found in at least {first part} proportion'
+             'of result samples, or junctions with at least {second part}'
+             'coverage in any one result sample.')
     args = parser.parse_args()
     if args.subparser_name == 'index':
         # Index
@@ -824,11 +848,28 @@ if __name__ == '__main__':
                         'The numbers of #1-mate and #2-mate files must be '
                         'equal.'
                     )
+            if args.aligner == "STAR":
+                command = "STAR"
+            elif args.aligner == "hisat2"
+                command = "hisat2"
+            else
+                raise RuntimeError(
+                        'Currently supported aligner options are STAR and'
+                        'hisat2.'
+                    )
+            print("I would have called : " 
+                    + command+ " " + " ".join(args.aligner_args))
+            #subprocess.check_call(command,args.aligner_args)
+
+
+
+
         searcher = MornaSearch(basename=args.basename)
         # Search
         # The search by query id case cuts out early
         if args.query_id is not None:
-            results = searcher.search_member_n(args.query_id,20, args.search_k,
+            results = searcher.search_member_n(args.query_id,
+                                    args.results, args.search_k,
                                     include_distances=args.distances,
                                      meta_db = args.metadata)
             print results
@@ -855,7 +896,8 @@ if __name__ == '__main__':
                     if (i == backoff):
                         backoff += backoff
                         sys.stderr.write("\n")
-                        results = (searcher.search_nn(20, args.search_k,
+                        results = (searcher.search_nn(args.results, 
+                                    args.search_k,
                                     include_distances=args.distances,
                                      meta_db = args.metadata))
                         shared = 0
@@ -881,7 +923,8 @@ if __name__ == '__main__':
                     searcher.update_query(junction)
                     if (i == backoff):
                         backoff += backoff
-                        results = (searcher.search_nn(20, args.search_k,
+                        results = (searcher.search_nn(args.results, 
+                                    args.search_k,
                                     include_distances=args.distances,
                                      meta_db = args.metadata))
                         shared = 0
@@ -910,10 +953,10 @@ if __name__ == '__main__':
             if args.verbose:
                 sys.stderr.write("\n")
             if args.exact:
-                results = searcher.exact_search_nn(20,
+                results = searcher.exact_search_nn(args.results,
                  include_distances=args.distances, meta_db = args.metadata)
             else:
-                results = (searcher.search_nn(20, args.search_k,
+                results = (searcher.search_nn(args.results, args.search_k,
                             include_distances=args.distances,
                             meta_db = args.metadata))
             print results
