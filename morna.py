@@ -123,6 +123,10 @@ class MornaIndex(AnnoyIndex):
         self.sample_count = sample_count
         #Store basename for index files
         self.basename = basename
+        #Store the map between provided sample ids and internal ids,
+        #which are an integer range from 0-number_of_samples-1
+        self.internal_id_map = {}
+        self.new_internal_id = 0
         # Store numbers of samples in which each junction is found
         self.sample_frequencies = defaultdict(int)
         # Store low-dimensional representations of samples
@@ -153,9 +157,9 @@ class MornaIndex(AnnoyIndex):
         self.junc_id = -1
         self.last_present_junction = defaultdict(lambda:-1)
         self.jns_write_buffer = defaultdict(list)
-        self.cov_write_buffer = defaultdict(list)
-     
-    #@profile   
+        self.cov_write_buffer = defaultdict(list)                
+    
+    #@profile 
     def add_junction(self, junction, samples, coverages):
         """ Adds contributions of a single junction to feature vectors
             and also constructs junctions-by-sample database.
@@ -173,9 +177,14 @@ class MornaIndex(AnnoyIndex):
         
         
         for i,sample_id in enumerate(samples):
-        
             try:
-                shard_id = mmh3.hash(str(sample_id)) % 100
+                internal_id = self.internal_id_map[sample_id]
+            except KeyError:
+                self.internal_id_map[sample_id] = self.new_internal_id
+                self.new_internal_id+=1
+                internal_id = self.internal_id_map[sample_id]
+            try:
+                shard_id = mmh3.hash(str(internal_id)) % 100
                 
                 #junc_cursor = self.junction_conns[shard_id].cursor()
                 junc_cursor = self.cursors[shard_id]
@@ -189,13 +198,13 @@ class MornaIndex(AnnoyIndex):
                 junc_cursor = self.cursors[shard_id]
                 junc_cursor.execute("BEGIN")
         
-            if self.last_present_junction[sample_id] == -1: 
+            if self.last_present_junction[internal_id] == -1: 
                 #if this is the first time we've seen this sample,
                 #we'll have to make a table for it.
                 junc_cursor.execute(("CREATE TABLE sample_%d "         
                                         +"(junctions TEXT,"
                                          +"coverages TEXT)") 
-                                            % sample_id)                
+                                            % internal_id)                
                    
                 #All start with buffers now
                 brand_new_junctions = "!1"
@@ -205,34 +214,34 @@ class MornaIndex(AnnoyIndex):
                 
                 #self.junc_cursor.execute(sql, 
                 #            [brand_new_junctions,str(coverages[i])])
-                self.jns_write_buffer[sample_id].append(brand_new_junctions)
-                self.cov_write_buffer[sample_id].append(coverages[i])
+                self.jns_write_buffer[internal_id].append(brand_new_junctions)
+                self.cov_write_buffer[internal_id].append(coverages[i])
                 
             else: #if there is already a table for this sample
-                #this will imply self.last_present_junction[sample_id] isn't -1
+                #this will imply self.last_present_junction[internal_id] isn't -1
                 #first we check if we're on a run of 1s for this sample
-                if self.last_present_junction[sample_id] == self.junc_id - 1:
+                if self.last_present_junction[internal_id] == self.junc_id - 1:
                     #If so, we need to get the current run length
                     #If there's stuff in the buffer, we can check there
-                    if (self.jns_write_buffer[sample_id]):
+                    if (self.jns_write_buffer[internal_id]):
                         m = re.search("!([0-o]+)$",
-                                  self.jns_write_buffer[sample_id][-1])
+                                  self.jns_write_buffer[internal_id][-1])
                         new_run_length = increment_64(m.group(1))
                         new_terminus = ('!' + new_run_length)
                         #and even update the run itself in buffer
-                        self.jns_write_buffer[sample_id][-1]=(new_terminus)
-                        self.cov_write_buffer[sample_id].append(coverages[i])
+                        self.jns_write_buffer[internal_id][-1]=(new_terminus)
+                        self.cov_write_buffer[internal_id].append(coverages[i])
                     #Otherwise, we actually have to update the run in db :/    
                     #This is an edge case that rarely applies, 
                     #but it's definitely the worst case performance-wise.
                     else:
                         current_junctions=""
                         junc_cursor.execute(("SELECT ROWID FROM sample_%d"
-                                 + " ORDER BY ROWID DESC LIMIT 1") % sample_id)
+                                 + " ORDER BY ROWID DESC LIMIT 1") % internal_id)
                         last_rowid = junc_cursor.fetchone()[0]
                         junc_cursor.execute(
                         ("SELECT junctions FROM sample_%d "
-                                + "ORDER BY ROWID DESC LIMIT 1") % sample_id)
+                                + "ORDER BY ROWID DESC LIMIT 1") % internal_id)
                         current_junctions = junc_cursor.fetchone()[0]
                         m = re.search("(.*?)!([0-o]+)$", current_junctions)
                         new_run_length = increment_64(m.group(2))
@@ -242,43 +251,43 @@ class MornaIndex(AnnoyIndex):
                         sql = (("UPDATE sample_%d SET junctions = ?," 
                                 + " coverages = coverages||?||','"
                                 + "WHERE ROWID = %d") 
-                                                    % (sample_id,last_rowid))
+                                                    % (internal_id,last_rowid))
                         junc_cursor.execute(sql,
                             [new_junctions,coverages[i]])
                     
                 #Otherwise, provided we're not on a run of 1s
                 else: 
-                    self.jns_write_buffer[sample_id].append(
+                    self.jns_write_buffer[internal_id].append(
                             "." + encode_64((self.junc_id 
-                                - self.last_present_junction[sample_id]) - 1))
-                    self.jns_write_buffer[sample_id].append("!1")
-                    self.cov_write_buffer[sample_id].append(coverages[i])
+                                - self.last_present_junction[internal_id]) - 1))
+                    self.jns_write_buffer[internal_id].append("!1")
+                    self.cov_write_buffer[internal_id].append(coverages[i])
                 
                 #We will write buffer contents when buffer gets too big,
                 #and then empty the sample's buffer
-                if (sys.getsizeof(self.jns_write_buffer[sample_id]) 
+                if (sys.getsizeof(self.jns_write_buffer[internal_id]) 
                                                 > self.buffer_size):
-                    #print "let's write buffer for sample " + str(sample_id)
+                    #print "let's write buffer for sample " + str(internal_id)
                     
                     sql = ((
                     "INSERT INTO sample_%d VALUES (?, ?)")
-                    % sample_id)
+                    % internal_id)
                     #TODO: format juncs buffer entries as always having an .X!X 
                     #format, so each has a corresponding single cov entry? Right 
                     #now we are content with variable length rows in db
                     junc_cursor.execute(sql, 
-                            ["".join(self.jns_write_buffer[sample_id]),
+                            ["".join(self.jns_write_buffer[internal_id]),
                             (",".join(str(c) for c in         
-                                    self.cov_write_buffer[sample_id]) + ",")
+                                    self.cov_write_buffer[internal_id]) + ",")
                             ]
                     
                     )
                     #self.junction_conn.commit()
-                    self.jns_write_buffer[sample_id] = []
-                    self.cov_write_buffer[sample_id] = []
+                    self.jns_write_buffer[internal_id] = []
+                    self.cov_write_buffer[internal_id] = []
             #No matter what case we hit, each sample must update its 
             #last_present_junction to the current.
-            self.last_present_junction[sample_id] = self.junc_id
+            self.last_present_junction[internal_id] = self.junc_id
         
         #if (self.junc_id % 1000 == 0):
         #    self.junction_conn.commit()
@@ -348,20 +357,24 @@ class MornaIndex(AnnoyIndex):
         with open(basename + ".freq.mor", 'w') as pickle_stream:
             cPickle.dump(self.sample_frequencies, pickle_stream,
                          cPickle.HIGHEST_PROTOCOL)
+        # Pickle sample id to interal id map
+        with open(basename + ".map.mor", 'w') as pickle_stream:
+            cPickle.dump(self.internal_id_map, pickle_stream,
+                         cPickle.HIGHEST_PROTOCOL)
         #Now, deal with junction db:
         #We don't need to pad out all junction lists with runs of 0s,
         #we just assume all junctions after the end of the coverage are 0s
         #We know all shards have been created now,
         # so getting shard cursor is easier
         
-        for sample_id in self.last_present_junction.keys():
+        for internal_id in self.last_present_junction.keys():
             ##First, add terminal 0s to each buffer (if needed)
-            #if self.last_present_junction[sample_id]<self.junc_id:
-            #    self.jns_write_buffer[sample_id].append('o'+str(self.junc_id
-            #                    - self.last_present_junction[sample_id]))
+            #if self.last_present_junction[internal_id]<self.junc_id:
+            #    self.jns_write_buffer[internal_id].append('o'+str(self.junc_id
+            #                    - self.last_present_junction[internal_id]))
                 #print("gonna add " + str(additional_junctions))
             
-            shard_id = mmh3.hash(str(sample_id)) % 100
+            shard_id = mmh3.hash(str(internal_id)) % 100
             junc_cursor = self.cursors[shard_id]
             
             #Write each buffer out, skipping only empty buffers
@@ -369,14 +382,14 @@ class MornaIndex(AnnoyIndex):
             #terminal 0s, must use different sql if there are no coverages to 
             #add, aka the only-terminal-0s case)
             
-            if (self.jns_write_buffer[sample_id]):
+            if (self.jns_write_buffer[internal_id]):
                 sql = ((
                     "INSERT INTO sample_%d VALUES (?, ?)")
-                    % sample_id)
+                    % internal_id)
                 junc_cursor.execute(sql, 
-                        ["".join(self.jns_write_buffer[sample_id]),
+                        ["".join(self.jns_write_buffer[internal_id]),
                         (",".join(str(c) for c in         
-                                self.cov_write_buffer[sample_id]) + ",")
+                                self.cov_write_buffer[internal_id]) + ",")
                         ]
                 )
                 
@@ -438,7 +451,31 @@ class MornaSearch(object):
         
         with open(basename + ".freq.mor") as pickle_stream:
             self.sample_frequencies = cPickle.load(pickle_stream)
-    
+            
+        with open(basename + ".map.mor") as pickle_stream:
+            self.internal_id_map = cPickle.load(pickle_stream)
+            
+    def inverse_lookup(self, internal_id):
+        """ Finds the sample_id key in self.internal_id_map corresponding 
+            to the provided internal id; this mapping should always be 1:1
+            
+            internal_id: an integer in the range 0-(numberOfSamples-1)
+
+            return value: the input file sample_id corresponding to this 
+            internal id
+        """
+        match = None
+        found_one_already = False
+        for sample_id in self.internal_id_map.keys():
+            if self.internal_id_map[sample_id] == internal_id:
+                match = sample_id
+                if found_one_already == True:
+                    raise RuntimeError(str(internal_id) 
+                     + " does not have unique mapping in self.internal_id_map.")
+                found_one_already = True
+        return match
+                
+                
     def update_query(self, junction):
         """ Updates the query with a junction in an additive fashion
 
@@ -501,7 +538,8 @@ class MornaSearch(object):
             meta_results = ['' for _ in results[0]]
             conn = sqlite3.connect(self.basename + ".meta.mor")
             cursor = conn.cursor()
-            for i,sample_id in enumerate(results[0]):
+            for i,internal_id in enumerate(results[0]):
+                sample_id = self.inverse_lookup(internal_id)
                 cursor.execute(
                     'SELECT keywords FROM metadata WHERE sample_id=?',
                                                  (str(sample_id),))
@@ -551,7 +589,8 @@ class MornaSearch(object):
             meta_results = ['' for _ in results[0]]
             conn = sqlite3.connect(self.basename + ".meta.mor")
             cursor = conn.cursor()
-            for i,sample_id in enumerate(results[0]):
+            for i,internal_id in enumerate(results[0]):
+                sample_id = self.inverse_lookup(internal_id)
                 cursor.execute(
                     'SELECT keywords FROM metadata WHERE sample_id=?',
                                                  (str(sample_id),))
@@ -599,7 +638,8 @@ class MornaSearch(object):
             meta_results = ['' for _ in results[0]]
             conn = sqlite3.connect(self.basename + ".meta.mor")
             cursor = conn.cursor()
-            for i,sample_id in enumerate(results[0]):
+            for i,internal_id in enumerate(results[0]):
+                sample_id = self.inverse_lookup(internal_id)
                 cursor.execute(
                     'SELECT keywords FROM metadata WHERE sample_id=?',
                                                  (str(sample_id),))
@@ -653,8 +693,8 @@ def add_search_parameters(subparser):
     subparser.add_argument('-q','--query-id', metavar='<int>', type=int,
             required=False,
             default=None,
-            help=('attempt to converge on a solution with concordance equal'
-                  'to the given argument as a percentage (truncated to 0-100)')
+            help=('if provided, search is for nearest neighbors to the sample'
+                  'already in the index with this id')
         )
     subparser.add_argument('-e', '--exact', action='store_const',
             const=True,
@@ -770,6 +810,12 @@ if __name__ == '__main__':
             default=None,
             help='additional arguments to pass to aligner; use quote string'
         )
+    align_parser.add_argument('-p1', '--pass1-sam', metavar='<sam>',
+            type=str,
+            required=False,
+            default="pass1.sam",
+            help='filename for pass 1 alignment file output by aligner'
+        )
     align_parser.add_argument('--junction-filter', type=str, required=False,
         default='.05,5',
         help='Two part junction filter settings separated by comma. Only retain' 
@@ -829,6 +875,10 @@ if __name__ == '__main__':
         morna_index.build(args.n_trees, verbose=args.verbose)
         morna_index.save(args.basename)
     else:
+        junction_stream = sys.stdin 
+        #this will be changed to the output sam file 
+        #from first pass alignment in the morna align case
+        
         if args.subparser_name == 'align':
             # Check command-line parameters
             if args.unpaired is not None:
@@ -848,20 +898,45 @@ if __name__ == '__main__':
                         'The numbers of #1-mate and #2-mate files must be '
                         'equal.'
                     )
+                    
+            command = []
+                
             if args.aligner == "STAR":
-                command = "STAR"
-            elif args.aligner == "hisat2"
-                command = "hisat2"
-            else
+                command.append("STAR")
+                command += ["--genomeDir", args.index]
+                command += ["--outFileNamePrefix", args.pass1_sam]
+                command.append("--readFilesIn")
+                if args.mates_1 is not None and args.mates_2 is not None:
+                    command += args.mates_1
+                    command += args.mates_2
+                else:
+                    command += args.unpaired
+                    
+                    
+            elif args.aligner == "hisat2":
+                command.append("hisat2")
+                command += ["-x", args.index]
+                command += ["-S",args.pass1_sam]
+                if args.mates_1 is not None and args.mates_2 is not None:
+                    command += ["-1", ",".join(args.mates_1)]
+                    command += ["-2", ",".join(args.mates_2)]
+                else:
+                    command += ["-U", ",".join(args.unpaired)]            
+            else:
                 raise RuntimeError(
                         'Currently supported aligner options are STAR and'
                         'hisat2.'
                     )
-            print("I would have called : " 
-                    + command+ " " + " ".join(args.aligner_args))
-            #subprocess.check_call(command,args.aligner_args)
-
-
+            if args.aligner_args is not None:
+                for arg in args.aligner_args.split(" "):
+                    command.append(arg)
+            if args.verbose:
+                print("Calling: " 
+                        + " ".join(command))
+            ret = subprocess.check_call(command)
+            junction_stream = open(args.pass1_sam)
+            args.format = "sam"
+            
 
 
         searcher = MornaSearch(basename=args.basename)
@@ -875,13 +950,13 @@ if __name__ == '__main__':
             print results
             quit()
         # Read BED or BAM
-        if args.format == 'sam':
-            junction_generator = junctions_from_sam_stream(sys.stdin)
-        elif args.format == 'bed':
-            junction_generator = junctions_from_bed_stream(sys.stdin)
+        if args.format == "sam":
+            junction_generator = junctions_from_sam_stream(junction_stream)
+        elif args.format == "bed":
+            junction_generator = junctions_from_bed_stream(junction_stream)
         else:
-            assert args.format == 'raw'
-            junction_generator = junctions_from_raw_stream(sys.stdin)
+            assert args.format == "raw"
+            junction_generator = junctions_from_raw_stream(junction_stream)
         if (args.converge) and (args.format == 'sam'):
             threshold = args.converge
             backoff = 100
@@ -961,4 +1036,23 @@ if __name__ == '__main__':
                             meta_db = args.metadata))
             print results
             
+        if args.subparser_name == 'align':
+            for result in results[0]:
+                shard_id = mmh3.hash(str(result)) % 100
+                print "shard_id is " + str(shard_id)
+                database = args.basename + ".sh" + str(shard_id) + ".junc.mor"
+                conn=sqlite3.connect(database)
+                c=conn.cursor()
+                print("Connected to " + database)
+                db_rle_juncs=[]
+                db_coverages=[]
+                for line in c.execute(
+                    ("SELECT * FROM sample_%d") % result):
+                        db_rle_juncs.append(line[0])
+                        db_coverages.append(line[1])
+                print("-------------------------------------------------")
+                print("Internal id " + str(result) + " junctions/converages:")
+                print db_rle_juncs
+                print db_coverages
+                conn.close()
             
