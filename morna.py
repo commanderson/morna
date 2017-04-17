@@ -26,7 +26,7 @@ import sys
 from annoy import AnnoyIndex
 from BitVector import BitVector
 from collections import defaultdict
-from math import log, sqrt
+from math import log, sqrt, ceil
 from utils import *
 
 _help_intro = \
@@ -1068,8 +1068,9 @@ if __name__ == '__main__':
 #            'coverage in any one result sample.'
             for result in results[0]:
                 shard_id = mmh3.hash(str(result)) % 100
-                #print "shard_id is " + str(shard_id)
-                database = args.basename + ".sh" + str(shard_id) + ".junc.mor"
+                print "shard_id is " + format(shard_id, '02d')
+                database = (args.basename + ".sh" + format(shard_id, '02d') 
+                                                            + ".junc.mor")
                 conn=sqlite3.connect(database)
                 c=conn.cursor()
                 #print("Connected to " + database)
@@ -1091,26 +1092,38 @@ if __name__ == '__main__':
                 #indexes from this_one_juncs, adding a list of integer 
                 #junction indexes to result_juncs and a 
                 #list of integer coverages to result_covrs
-                result_juncs.append(running_sum(this_one_juncs.split("!")))
-                result_covrs.append(this_one_covrs.split(","))
+                result_juncs.append([j for j in
+                                 running_sum(this_one_juncs.split("!"))])
+                result_covrs.append(this_one_covrs.strip(",").split(","))
                 conn.close()
+            print "result_juncs lengths: "
+            print [len(ls) for ls in result_juncs]
+            print "result_covrs lengths: "
+            print [len(ls) for ls in result_covrs]
+            
             retain_junctions = set()
             frequency_counts = defaultdict(int)
-            for i,junction_list in enumerate(result_juncs):
+            #this next gets the minimum number of samples with a junction
+            #to pass the frequency filter; we can stop doing anything
+            #for that junction once we have passed this threshold
+            min_count = int(ceil(frequency_filter * len(result_juncs)))
+            for i, junction_list in enumerate(result_juncs):
                 for index in junction_list:
-                    if frequency_counts[index] < frequency_filter:
+                    if frequency_counts[index] < min_count:
                         frequency_counts[index]+=1
-                    elif frequency_counts[index] == frequency_filter:
+                    elif frequency_counts[index] == min_count:
                         retain_junctions.add(index)
+                        #print("Retaining junction " + str(index) 
+                        #        + " for passing frequency filter")
                         frequency_counts[index]+=1
-            for i, coverages in enumerate(result_covrs):
-                for j, coverage in enumerate(coverages):
+            for i, coverages_list in enumerate(result_covrs):
+                for j, coverage in enumerate(coverages_list):
                     if int(coverage) >= coverage_filter:
                         #Mark the jth (0 based) index from the list of junctions 
                         #indexes present in this sample for retention since 
                         #its corresponding coverage passes the filter.
-                        retain_junctions.add(j)
+                        retain_junctions.add(result_juncs[i][j])
                         
-                        #print("Retaining junction " + str(retain) 
+                        #print("Retaining junction " + str(result_juncs[i][j]) 
                         #        + " for passing coverage filter")
-            print retain_junctions
+            print sorted(retain_junctions)
