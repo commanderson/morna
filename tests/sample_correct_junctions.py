@@ -8,6 +8,7 @@ junctions-by-sample morna db matches up.
 """
 
 import argparse
+import cPickle
 import gzip
 import mmh3
 import re
@@ -57,11 +58,10 @@ parser.add_argument('-i','--intropolis', metavar='<file>', type=str,
             help=('path to gzipped file recording junctions across samples '
                   'in intropolis format')
         )
-parser.add_argument('-f', '--sharded', action='store_const',
+parser.add_argument('-u', '--unsharded', action='store_const',
             const=True,
             default=False,
-            help='checking sharded db; -d argument is basename and shard db '
-                 'will be found automatically'
+            help='not checking sharded db; -d argument is exactly literal'
         )
 parser.add_argument('-x', '--exclude-introp', action='store_const',
             const=True,
@@ -111,38 +111,45 @@ if not args.exclude_introp:
     if not (sum(introp_bv) == len(introp_coverages.split(','))):
         print("ERR: The number of present junctions and the length "
         + "of the coverages list don't match in INTROPOLOLIS-LIKE FILE!.")
-        
-if args.sharded:
-    shard_id = mmh3.hash(str(args.sample)) % 100
+
+internal_id_map = {}
+with open(args.database + ".map.mor") as pickle_stream:
+                internal_id_map = cPickle.load(pickle_stream)
+                
+if not args.unsharded:# figure out which shard has our sample in sharded case
+    internal_id = internal_id_map[args.sample]
+    print("Sample id " + str(args.sample) + " is internal id " 
+                                    + str(internal_id))
+    shard_id = mmh3.hash(str(internal_id)) % 100
     print "shard_id is " + str(shard_id)
     args.database = args.database + ".sh" + str(shard_id) + ".junc.mor"
+
 conn=sqlite3.connect(args.database)
 c=conn.cursor()
-
+print("Connected to " + args.database)
 db_rle_juncs=[]
 db_coverages=[]
-for line in c.execute(("SELECT * FROM sample_%d") % args.sample ):
+for line in c.execute(("SELECT * FROM sample_%d") % internal_id ):
     db_rle_juncs.append(line[0])
     db_coverages.append(line[1])
 
 shr_str = "".join(db_rle_juncs)
 db_coverages = "".join(db_coverages)
 db_bv=BitVector(size=0)
+i = 0
 while len(shr_str)>0:
     #print "starting with shr-str of:" +shr_str
-    m = re.search("^([!.])([0-o]+)(.*)$",shr_str)
-    if m.group(1) == '!':
+    m = re.search("(.*)!([0-o]+)$",shr_str)
+    if i % 2 == 0:
             bit='1'
-    elif m.group(1) == '.':
+    else:
             bit='0'
-    else: 
-        raise ValueError("Found '" + m.group(1) 
-                + "', a non '!.' bit in parsing " + shr_str)
-        
+      
     if not isbase64(m.group(2)):
         raise ValueError("Found invalid runlength '" +  m.group(2) + "' in parsing " + shr_str)
-    db_bv =  db_bv + BitVector(bitstring=(decode_64(m.group(2))*bit)) 
-    shr_str = m.group(3)
+    db_bv =  BitVector(bitstring=(decode_64(m.group(2))*bit)) + db_bv
+    shr_str = m.group(1)
+    i+=1
     
 print "DB Junctions"
 #print db_bv
@@ -163,9 +170,15 @@ if (db_coverages == introp_coverages):
     print("The comma-separated coverage lists match")
 else:
     print("ERR:The comma-separated coverage lists DO NOT match")
+    #print "INTROP COVS: " + introp_coverages
+    #print "DB COVS: " + db_coverages
 if (db_bv == introp_bv):
     print("The junction-presenece bitvectors derived from the original file"
         +" and the DB match.")
 else:
     print("ERR:The junction-presenece bitvectors derived from the original file"
         +" and the DB DO NOT match.")
+    print "introp_bv: "
+    #print introp_bv
+    print "db_bv: "
+    #print db_bv

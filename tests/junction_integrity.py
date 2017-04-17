@@ -4,10 +4,10 @@ junction_integrity.py
 
 tests each table in the provided .junc.mor junctions-by-sample morna db
 for logical consistency; the number of junctions indicated in the 
-run-length-encoded junctions field must agree with the number of coverages int
+run-length-encoded junctions field must agree with the number of coverages in
 the comma-separated coverages field, and all run-length encoded junctions lists
 must be of a length equal to the number of junctions and must be in a valid
-format, with strictly alternating runs of 'o' and 'i'
+format, run lengths separated by ! characters
 """
 
 import argparse
@@ -53,28 +53,21 @@ if __name__ == '__main__':
     for table in sorted(tables):
         sys.stdout.write("Checking table " + table + "\r")
         sys.stdout.flush()
-        last_one = 2
+        #last_one = 2
         min_num_juncs = 0
         num_pos_juncs = 0
         num_covs = 0
         for juncs,covs in c.execute(("SELECT * FROM %s")%table):
             num_covs += len(covs.strip(',').split(','))
             shr_str=str(juncs)
+            i=0
             while len(shr_str)>0:
-                m = re.search("^([!.])([0-o]+)(.*)$",shr_str)
+                m = re.search("(.*)!([0-o]+)$",shr_str)
                 min_num_juncs += decode_64(m.group(2))
-                if m.group(1) == '!':
-                    bit=1
+                if i%2==0:
                     num_pos_juncs += decode_64(m.group(2))
-                else:
-                    bit=0
-                if last_one==bit:
-                    problem = True
-                    print("\nERR:With len(shr_str) " + str(len(shr_str)) 
-                            + " we found 2 " + str(bit) + "s in a row")
-                else:
-                    last_one=bit
-                shr_str = m.group(3)
+                i += 1
+                shr_str = m.group(1)
         if not num_pos_juncs==num_covs:
             print("\nERR:In table " + table + " found num_pos_juncs " 
                     + str(num_pos_juncs) + " but num_covs " 

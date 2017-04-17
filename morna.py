@@ -84,19 +84,36 @@ def magnitude(v1):
     return mag
     
 def dot_prod(v1,v2):
-    """Calculate dot product for 2 vectors
+    """ Calculate dot product for 2 vectors
     
         v1 and v2: vectors of matching length
     """
     return sum([i*j for (i, j) in zip(v1, v2)])
     
 def cosine_distance(v1,v2):
-    """Calculate dot product for 2 vectors
+    """ Calculate dot product for 2 vectors
     
         v1 and v2: vectors of matching length
     """
     cosine_similarity = dot_prod(v1, v2)/ (magnitude(v1) * magnitude(v2))
     return 1-cosine_similarity
+    
+def running_sum(rls):
+    """ Generate list of present junction ids from our run-length_list
+    
+        rls: list of run length strings encoded in our base64 format
+        using 0-9 as digits 0-9 and characters ':' thru 'o'
+        as digits 10-63
+    """
+    tot = 0
+    for i, item in enumerate(rls):
+        length = decode_64(item)
+        if i % 2:
+            tot += length
+        else:
+            for i in xrange(length):
+                yield tot + i
+            tot += length
 
 class MornaIndex(AnnoyIndex):
     """ Augments AnnoyIndex to accommodate parameters needed by morna
@@ -209,7 +226,7 @@ class MornaIndex(AnnoyIndex):
                 #All start with buffers now
                 brand_new_junctions = "!1"
                 if self.junc_id >0:
-                    brand_new_junctions = ("." + encode_64(self.junc_id) 
+                    brand_new_junctions = ("!" + encode_64(self.junc_id) 
                                             + "!1")
                 
                 #self.junc_cursor.execute(sql, 
@@ -258,7 +275,7 @@ class MornaIndex(AnnoyIndex):
                 #Otherwise, provided we're not on a run of 1s
                 else: 
                     self.jns_write_buffer[internal_id].append(
-                            "." + encode_64((self.junc_id 
+                            "!" + encode_64((self.junc_id 
                                 - self.last_present_junction[internal_id]) - 1))
                     self.jns_write_buffer[internal_id].append("!1")
                     self.cov_write_buffer[internal_id].append(coverages[i])
@@ -378,7 +395,7 @@ class MornaIndex(AnnoyIndex):
             junc_cursor = self.cursors[shard_id]
             
             #Write each buffer out, skipping only empty buffers
-            #(NOTE: Not adding terminal 0s just infeerring them. If we did want 
+            #(NOTE: Not adding terminal 0s just inferring them. If we did want 
             #terminal 0s, must use different sql if there are no coverages to 
             #add, aka the only-terminal-0s case)
             
@@ -1037,22 +1054,63 @@ if __name__ == '__main__':
             print results
             
         if args.subparser_name == 'align':
+            filter = args.junction_filter.split(",")
+            frequency_filter = float(filter[0])
+            coverage_filter = int(filter[1])
+            max_junctions = -1
+            #print presence_filter
+            #print coverage_filter
+            result_juncs = []
+            result_covrs = []
+#            'Two part junction filter settings separated by comma. Only retain' 
+#            'junctions for alignment found in at least {first part} proportion'
+#            'of result samples, or junctions with at least {second part}'
+#            'coverage in any one result sample.'
             for result in results[0]:
                 shard_id = mmh3.hash(str(result)) % 100
-                print "shard_id is " + str(shard_id)
+                #print "shard_id is " + str(shard_id)
                 database = args.basename + ".sh" + str(shard_id) + ".junc.mor"
                 conn=sqlite3.connect(database)
                 c=conn.cursor()
-                print("Connected to " + database)
-                db_rle_juncs=[]
-                db_coverages=[]
-                for line in c.execute(
-                    ("SELECT * FROM sample_%d") % result):
-                        db_rle_juncs.append(line[0])
-                        db_coverages.append(line[1])
-                print("-------------------------------------------------")
-                print("Internal id " + str(result) + " junctions/converages:")
-                print db_rle_juncs
-                print db_coverages
+                #print("Connected to " + database)
+                #The following makes this_one_juncs a list 
+                #of !-separated lists of based64 encoded run lengths
+                #and it makes this_one_covrs a list of ,-separated lists
+                #of coverage integers
+                this_one_juncs, this_one_covrs = zip(*list(c.execute(
+                        ("SELECT * FROM sample_%d") % result
+                    )))
+                
+                #Then we join them, making this_one_juncs a string which is
+                #a single !-separated list of based64 encoded run lengths
+                #and this_one_covrs a string representing a ,-separated list
+                #of coverage integers
+                this_one_juncs="".join(this_one_juncs)
+                this_one_covrs="".join(this_one_covrs)
+                #then we split both on their separator and extract junction 
+                #indexes from this_one_juncs, adding a list of integer 
+                #junction indexes to result_juncs and a 
+                #list of integer coverages to result_covrs
+                result_juncs.append(running_sum(this_one_juncs.split("!")))
+                result_covrs.append(this_one_covrs.split(","))
                 conn.close()
-            
+            retain_junctions = set()
+            frequency_counts = defaultdict(int)
+            for i,junction_list in enumerate(result_juncs):
+                for index in junction_list:
+                    if frequency_counts[index] < frequency_filter:
+                        frequency_counts[index]+=1
+                    elif frequency_counts[index] == frequency_filter:
+                        retain_junctions.add(index)
+                        frequency_counts[index]+=1
+            for i, coverages in enumerate(result_covrs):
+                for j, coverage in enumerate(coverages):
+                    if int(coverage) >= coverage_filter:
+                        #Mark the jth (0 based) index from the list of junctions 
+                        #indexes present in this sample for retention since 
+                        #its corresponding coverage passes the filter.
+                        retain_junctions.add(j)
+                        
+                        #print("Retaining junction " + str(retain) 
+                        #        + " for passing coverage filter")
+            print retain_junctions

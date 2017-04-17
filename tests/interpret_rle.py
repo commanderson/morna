@@ -1,4 +1,9 @@
 #!/usr/bin/env python
+""" interpret_rle.py
+    interpret an input string as a !-separated list of run lengths 
+    encoded in our base64 format using 0-9 as digits 0-9 
+    and characters ':' thru 'o'as digits 10-63
+"""
 
 import argparse
 import re
@@ -16,27 +21,27 @@ def decode_64(s):
     return sum([(ord(s[idx])-48)
                     *(64**(len(s)-idx-1)) for idx in (xrange(len(s)))])
 
+
+            
 parser = argparse.ArgumentParser()
 parser.add_argument('-s','--string', metavar='<str>', type=str,
             required=True,
             help=('String to interpret as run-length-encoded'
-                  'bit vector')
+                  'junction list')
         )
+
 args = parser.parse_args()
 
-shr_str=args.string
-print shr_str
-bv=BitVector(size=0)
-while len(shr_str)>0:
-    print "starting with shr-str of:" +shr_str
-    m = re.search("(.*)([!.])([0-o]+)$",shr_str)
-    shr_str = m.groups()[0]
-    if m.groups()[1] == '!':
-            bit='1'
+rls = args.string.split("!")
+tot = 0
+jlist = []
+for i, item in enumerate(rls):
+    length = decode_64(item)
+    if i % 2 == len(jlist) % 2:
+        tot += length
     else:
-            bit='0'
-    bv = BitVector(bitstring=(decode_64(m.groups()[2])*bit)) + bv
-print "Original String:"
-print args.string
-print "Bit vector:"
-print bv
+        for i in xrange(length):
+            jlist.append(tot + i)
+        tot += length
+print "Input string: " + args.string
+print "List of junctions: " + jlist
