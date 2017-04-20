@@ -838,7 +838,13 @@ if __name__ == '__main__':
         help='Two part junction filter settings separated by comma. Only retain' 
              'junctions for alignment found in at least {first part} proportion'
              'of result samples, or junctions with at least {second part}'
-             'coverage in any one result sample.')
+             'coverage in any one result sample.'
+        )
+    align_parser.add_argument('--junction-file', type=str, metavar='<gz>',
+        required=True,
+        help='path to gzipped file with junction name elements in same order '
+             'as file used to create index (that file will do in a pinch)'
+        )
     args = parser.parse_args()
     if args.subparser_name == 'index':
         # Index
@@ -930,8 +936,8 @@ if __name__ == '__main__':
                     command += args.unpaired
                     
                     
-            elif args.aligner == "hisat2":
-                command.append("hisat2")
+            elif (args.aligner == "hisat2") or (args.aligner == "hisat"):
+                command.append(args.aligner)
                 command += ["-x", args.index]
                 command += ["-S",args.pass1_sam]
                 if args.mates_1 is not None and args.mates_2 is not None:
@@ -1126,4 +1132,72 @@ if __name__ == '__main__':
                         
                         #print("Retaining junction " + str(result_juncs[i][j]) 
                         #        + " for passing coverage filter")
-            print sorted(retain_junctions)
+            print("Number of retained junctions: " + str(len(retain_junctions)))
+            #~/Downloads/hisat2-2.0.5/hisat2 
+            #-x /Users/andechri/Downloads/alignment/hg38/genome 
+            #-S ${i}hisat_out.sam -1 ${i}62.filtered.fastq 
+            #-2 ${i}63.filtered.fastq 
+            #--novel-splice-infile ~/Downloads/splicesites.txt            
+            
+            with open(args.pass1_sam + "_splicesites.txt", "w") as splices,\
+                          gzip.open(args.junction_file) as junction_names:
+                ordered_junctions = sorted(retain_junctions)
+                sys.stderr.write(str(len(ordered_junctions)) 
+                                + " junctions to begin with\n")
+                junction_index = ordered_junctions.pop(0)
+                
+                sys.stderr.flush()                
+                for i, line in enumerate(junction_names):
+                    if i == junction_index:
+                        tokens = line.strip().split("\t")[:4]
+                        tokens[1] = str(int(tokens[1])-2)
+                        splices.write("\t".join(tokens) + "\n")
+                        try:
+                            junction_index = ordered_junctions.pop(0)
+                        except IndexError:
+                            #if the list of junction to match is empty, 
+                            #stop looping
+                            break 
+                        #sys.stderr.write(str(len(ordered_junctions)) 
+                        #        + " junctions remain\r")
+                        
+            print ""
+            command = []
+                
+            if args.aligner == "STAR":
+                command.append("STAR")
+                command += ["--genomeDir", args.index]
+                command += ["--outFileNamePrefix", args.pass1_sam + ".2"]
+                command.append("--readFilesIn")
+                if args.mates_1 is not None and args.mates_2 is not None:
+                    command += args.mates_1
+                    command += args.mates_2
+                else:
+                    command += args.unpaired
+                    
+                    
+            elif (args.aligner == "hisat2") or (args.aligner == "hisat"):
+                command.append(args.aligner)
+                command += ["-x", args.index]
+                command += ["-S",args.pass1_sam]
+                if args.mates_1 is not None and args.mates_2 is not None:
+                    command += ["-1", ",".join(args.mates_1)]
+                    command += ["-2", ",".join(args.mates_2)]
+                else:
+                    command += ["-U", ",".join(args.unpaired)]            
+            else:
+                raise RuntimeError(
+                        'Currently supported aligner options are STAR and'
+                        'hisat2.'
+                    )
+            if args.aligner_args is not None:
+                for arg in args.aligner_args.split(" "):
+                    command.append(arg)
+
+            command += ["--novel-splicesite-infile", args.pass1_sam 
+                                                    + "_splicesites.txt"]
+            if args.verbose:
+                print("Calling: " 
+                        + " ".join(command))
+            ret = subprocess.check_call(command)
+            junction_stream.close()
