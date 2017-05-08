@@ -83,17 +83,23 @@ if __name__ == '__main__':
             if i%10000 == 0:
                 sys.stdout.write("Made it to line " + str(i) 
                                     + " in left file.\r")
-                sys.stdout.flush()
+                #sys.stdout.flush()
             if i/4 == keeplist[index]:
                 sys.stdout.write("\nkeeping line " + str(i) 
                     + " since keeplist[index] is "+ str(keeplist[index]) +"\r")
                 leftout.write(line)
                 if (i-3)%4 == 0:
-                    index += 1
+                    try:
+                        index += 1
+                        keeplist[index[
+                    except IndexError:
+                        #if the list of junction to match is empty, 
+                        #stop looping
+                        break
             
     sys.stdout.write("\n")
     print("Finished left file, begin right file")
-    sys.stdout.flush()
+
     with gzip.open(args.right) as rightin,\
          open(args.right + ".downsamp", "w") as rightout:
         index = 0
@@ -101,8 +107,14 @@ if __name__ == '__main__':
             if i%10000 == 0:
                 sys.stdout.write("Made it to line " + str(i) 
                                     + " in right file.\r")
-                sys.stdout.flush()
+                #sys.stdout.flush()
             if i/4 == keeplist[index]:
                 rightout.write(line)
                 if (i-3)%4 == 0:
-                    index += 1
+                    try:
+                        index += 1
+                        keeplist[index]
+                    except IndexError:
+                        #if the list of junction to match is empty, 
+                        #stop looping
+                        break
