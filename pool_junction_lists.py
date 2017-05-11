@@ -59,7 +59,7 @@ stored_tokens=""
 if __name__ == '__main__':
     args = parser.parse_args()
     
-    #this sort offset dictionary is used to alter sample ids
+    #this source offset dictionary is used to alter sample ids
     source_offset = {}
     for i,source in enumerate(args.sources):
         source_offset[source] = i * args.increment
@@ -100,5 +100,5 @@ if len(args.metafiles) > 0:
             with open(file) as metafile:
                 for line in metafile:
                     tokens = line.strip().split("\t")
-                    tokens[0]= str(int(tokens[0]) + i * increment)
+                    tokens[0]= str(int(tokens[0]) + i * args.increment)
                     meta_out.write("\t".join(tokens) + "\n")
