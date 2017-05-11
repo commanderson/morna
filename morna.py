@@ -464,6 +464,7 @@ class MornaSearch(object):
             self.sample_count = int(stats_stream.readline())
             self.dim = int(stats_stream.readline())
         
+        self.query = defaultdict(list)
         self.query_sample = [0.0 for _ in xrange(self.dim)]
         
         self.annoy_index = AnnoyIndex(self.dim)
@@ -474,6 +475,8 @@ class MornaSearch(object):
             
         with open(basename + ".map.mor") as pickle_stream:
             self.internal_id_map = cPickle.load(pickle_stream)
+        
+        
             
     def inverse_lookup(self, internal_id):
         """ Finds the sample_id key in self.internal_id_map corresponding 
@@ -496,7 +499,7 @@ class MornaSearch(object):
         return match
                 
                 
-    def update_query(self, junction):
+    def old_update_query(self, junction):
         """ Updates the query with a junction in an additive fashion
 
             junction: A junction with which to update the query,
@@ -518,6 +521,36 @@ class MornaSearch(object):
                     multiplier * (junction[3] * idf_value)
                 )
         
+    def update_query(self, junction):
+        """ Updates the query dictionary with a junction's coverage info
+
+            junction: A junction in list format with which to update the query,
+            in format 'chromosome start end coverage [other stuff]'
+            
+            No return value.
+        """
+        self.query[tuple(junction[:3])] += junction[3]
+                
+    def finalize_query(self):
+        """Uses the 'self.query' dictionary to create a final query sample 
+           stored in self.query_sample; doing it this way avoids hashing at 
+           every step
+           
+           No return value.
+        """
+        for junction in self.query:
+            hashable_junction = ' '.join(junction)        
+            if (self.sample_frequencies[hashable_junction] == 0.0):
+                idf_value = 0
+            else:
+                idf_value = log(float(self.sample_count)
+                                / self.sample_frequencies[hashable_junction])
+
+            hash_value = mmh3.hash(hashable_junction)
+            multiplier = (-1 if hash_value < 0 else 1)
+            self.query_sample[hash_value % self.dim] += (
+                        multiplier * (self.query[junction] * idf_value)
+                    )
         
             
     def search_nn(self, num_neighbors, search_k, 
@@ -1021,6 +1054,7 @@ if __name__ == '__main__':
                     if (i == backoff):
                         backoff += backoff
                         sys.stderr.write("\n")
+                        searcher.finalize_query()
                         results = (searcher.search_nn(args.results, 
                                     args.search_k,
                                     include_distances=args.distances,
@@ -1048,6 +1082,7 @@ if __name__ == '__main__':
                     searcher.update_query(junction)
                     if (i == backoff):
                         backoff += backoff
+                        searcher.finalize_query()
                         results = (searcher.search_nn(args.results, 
                                     args.search_k,
                                     include_distances=args.distances,
@@ -1071,10 +1106,12 @@ if __name__ == '__main__':
                                          + " junctions into query sample\r")
                         sys.stderr.flush()
                     searcher.update_query(junction)
+                searcher.finalize_query()
             else:
                 for i, junction in enumerate(junction_generator):
                     searcher.update_query(junction)
-            
+                searcher.finalize_query()
+                
             if args.verbose:
                 sys.stderr.write("\n")
             if args.exact:
@@ -1214,6 +1251,11 @@ if __name__ == '__main__':
            #chr1 438529 544346 - GC AG 2407,3250,5952,6791 2,1,2,3	[3]
                             tokens = line.strip().split("\t")
                             tokens[1] = str(int(tokens[1])-2)
+                            ####TODO: use just found in map to reconstruct!
+                            #new_samples = retain_sample_ids
+                            #new_coverages =old_covs[
+                            #        old_samples.index(sample_id)]
+                            ####
                             old_samples = [int(x) for x in tokens[6].split(",")]
                             old_covs = [int(x) for x in tokens[7].split(",")]
                             new_samples = []
