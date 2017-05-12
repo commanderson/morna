@@ -41,7 +41,7 @@ wget ftp://ftp.sanger.ac.uk/pub/gencode/Gencode_human/release_26/gencode.v26.ann
 gunzip gencode.v26.annotation.gtf.gz
 
 #create splice sites file
-python hisat2_extract_splice_sites.py genes.gtf > splicesites.txt
+python hisat2_extract_splice_sites.py gencode.v26.annotation.gtf > splicesites.txt
 
 #run alignment with known splicesites
 mkdir alignments/downsampled/annotated
