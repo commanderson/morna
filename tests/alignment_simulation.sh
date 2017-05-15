@@ -44,9 +44,9 @@ wget ftp://ftp.sanger.ac.uk/pub/gencode/Gencode_human/release_26/gencode.v26.ann
 gunzip gencode.v26.annotation.gtf.gz
 
 #create splice sites file
-berk=$(which hisat2_extract_splice_sites.py)
-python $berk gencode.v26.annotation.gtf > splicesites.txt
+extractor=$(which hisat2_extract_splice_sites.py)
+python $extractor gencode.v26.annotation.gtf > splicesites.txt
 
 #run alignment with known splicesites
 mkdir alignments/downsampled/annotated
-hisat2 -x hg38/genome -S alignments/downsampled/annotated/ds_ann_alignment -1 ERR922713_1.fastq.gz.downsamp -2 ERR922713_2.fastq.gz.downsamp --known-splicesite-infile splicesites.txt
+hisat2 -x hg38/genome alignments/downsampled/annotated/ds_ann_alignment -1 ERR922713_1.fastq.gz.downsamp -2 ERR922713_2.fastq.gz.downsamp --known-splicesite-infile splicesites.txt | samtools view -bS > alignments/downsampled/annotated/ds_ann_alignment.bam

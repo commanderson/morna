@@ -77,7 +77,7 @@ if __name__ == '__main__':
     #print keeplist
                     
     with gzip.open(args.left) as leftin,\
-            open(args.left + ".downsamp", "w") as leftout:
+            gzip.open(args.left + ".downsamp.gz", "w") as leftout:
         index = 0
         for i,line in enumerate(leftin):
             if i%10000 == 0:
@@ -91,7 +91,7 @@ if __name__ == '__main__':
                 if (i-3)%4 == 0:
                     try:
                         index += 1
-                        keeplist[index[
+                        keeplist[index]
                     except IndexError:
                         #if the list of junction to match is empty, 
                         #stop looping
@@ -101,7 +101,7 @@ if __name__ == '__main__':
     print("Finished left file, begin right file")
 
     with gzip.open(args.right) as rightin,\
-         open(args.right + ".downsamp", "w") as rightout:
+         gzip.open(args.right + ".downsamp.gz", "w") as rightout:
         index = 0
         for i,line in enumerate(rightin):
             if i%10000 == 0:
