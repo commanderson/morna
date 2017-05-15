@@ -16,7 +16,7 @@ tar -zxvf hg38.tar.gz
 hisat2 -x hg38/genome -1 ERR922713_1.fastq.gz -2 ERR922713_2.fastq.gz --novel-splicesite-outfile alignments/pass_1_novel_splicesites | samtools view -bS > alignments/pass_1_alignment.bam
 
 #Second pass of full-file alignment
-hisat2 -x /Users/andechri/Downloads/alignment/hg38/genome -1 ERR922713_1.fastq.gz -2 ERR922713_2.fastq.gz --novel-splicesite-infile alignments/pass_1_novel_splicesites | samtools view -bS > alignments/pass_2_alignment.bam
+hisat2 -x hg38/genome -1 ERR922713_1.fastq.gz -2 ERR922713_2.fastq.gz --novel-splicesite-infile alignments/pass_1_novel_splicesites | samtools view -bS > alignments/pass_2_alignment.bam
 
 #Downsampling operation
 python downsample_fastqs.py -1 ERR922713_1.fastq.gz -2 ERR922713_2.fastq.gz -d 40631462 -o 406314621
