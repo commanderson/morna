@@ -85,8 +85,8 @@ if __name__ == '__main__':
                                     + " in left file.\r")
                 #sys.stdout.flush()
             if i/4 == keeplist[index]:
-                sys.stdout.write("\nkeeping line " + str(i) 
-                    + " since keeplist[index] is "+ str(keeplist[index]) +"\r")
+                #sys.stdout.write("\nkeeping line " + str(i) 
+                #    + " since keeplist[index] is "+ str(keeplist[index]) +"\r")
                 leftout.write(line)
                 if (i-3)%4 == 0:
                     try:
@@ -118,3 +118,4 @@ if __name__ == '__main__':
                         #if the list of junction to match is empty, 
                         #stop looping
                         break
+    sys.stdout.write("\n")
