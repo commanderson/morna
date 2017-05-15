@@ -22,17 +22,17 @@ hisat2 -x hg38/genome -1 ERR922713_1.fastq.gz -2 ERR922713_2.fastq.gz --novel-sp
 python downsample_fastqs.py -1 ERR922713_1.fastq.gz -2 ERR922713_2.fastq.gz -d 40631462 -o 406314621
 
 mv ERR922713_1.fastq.gz.downsamp.gz ERR922713_1_downsamp.fastq.gz
-mv ERR922713_2.fastq.gz.downsamp ERR922713_2_downsamp.fastq.gz
+mv ERR922713_2.fastq.gz.downsamp.gz ERR922713_2_downsamp.fastq.gz
 
 #ON DOWNSAMPLED FILES:
 mkdir alignments/downsampled
 #hisat 2 2pass 
 mkdir alignments/downsampled/2pass
 #First pass of downsampled file
-hisat2 -x hg38/genome -1 ERR922713_1_downsamp.fastq.gz -2 ERR922713_1_downsamp.fastq.gz --novel-splicesite-outfile alignments/downsampled/2pass/ds_pass_1_novel_splicesites | samtools view -bS > alignments/downsampled/2pass/ds_pass_1_alignment.bam
+hisat2 -x hg38/genome -1 ERR922713_1_downsamp.fastq.gz -2 ERR922713_2_downsamp.fastq.gz --novel-splicesite-outfile alignments/downsampled/2pass/ds_pass_1_novel_splicesites | samtools view -bS > alignments/downsampled/2pass/ds_pass_1_alignment.bam
 
 #Second pass of downsampled alignment
-hisat2 -x hg38/genome -1 ERR922713_1_downsamp.fastq.gz -2 ERR922713_1_downsamp.fastq.gz --novel-splicesite-infile alignments/downsampled/2pass/ds_pass_1_novel_splicesites | samtools view -bS > alignments/downsampled/2pass/ds_pass_2_alignment.bam
+hisat2 -x hg38/genome -1 ERR922713_1_downsamp.fastq.gz -2 ERR922713_2_downsamp.fastq.gz --novel-splicesite-infile alignments/downsampled/2pass/ds_pass_1_novel_splicesites | samtools view -bS > alignments/downsampled/2pass/ds_pass_2_alignment.bam
 
 #hisat 2 morna 
 mkdir alignments/downsampled/morna
