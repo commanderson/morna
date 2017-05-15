@@ -1,8 +1,11 @@
 #!/bin/bash
 
+#PREREQ:
+#Set up ERR922713_1.fastq.gz and ERR922713_2.fastq.gz
+#and downsample_fastqs.py in the current directory
+
 #Prepare files and directories
 mkdir alignments
-#Set up ERR922713_1.fastq.gz and ERR922713_2.fastq.gz
 
 #Get hisat2 index
 wget ftp://ftp.ccb.jhu.edu/pub/infphilo/hisat2/data/hg38.tar.gz
@@ -26,10 +29,10 @@ mkdir alignments/downsampled
 #hisat 2 2pass 
 mkdir alignments/downsampled/2pass
 #First pass of downsampled file
-hisat2 -x /Users/andechri/Downloads/alignment/hg38/genome -1 ERR922713_1_downsamp.fastq.gz -2 ERR922713_1_downsamp.fastq.gz --novel-splicesite-outfile alignments/downsampled/2pass/ds_pass_1_novel_splicesites | samtools view -bS > alignments/downsampled/2pass/ds_pass_1_alignment.bam
+hisat2 -x hg38/genome -1 ERR922713_1_downsamp.fastq.gz -2 ERR922713_1_downsamp.fastq.gz --novel-splicesite-outfile alignments/downsampled/2pass/ds_pass_1_novel_splicesites | samtools view -bS > alignments/downsampled/2pass/ds_pass_1_alignment.bam
 
 #Second pass of downsampled alignment
-hisat2 -x /Users/andechri/Downloads/alignment/hg38/genome -S alignments/downsampled/2pass/ds_pass_2_alignment -1 ERR922713_1_downsamp.fastq.gz -2 ERR922713_1_downsamp.fastq.gz --novel-splicesite-infile alignments/ds_pass_1_novel_splicesites | samtools view -bS > alignments/downsampled/2pass/ds_pass_2_alignment.bam
+hisat2 -x hg38/genome -S alignments/downsampled/2pass/ds_pass_2_alignment -1 ERR922713_1_downsamp.fastq.gz -2 ERR922713_1_downsamp.fastq.gz --novel-splicesite-infile alignments/downsampled/2pass/ds_pass_1_novel_splicesites | samtools view -bS > alignments/downsampled/2pass/ds_pass_2_alignment.bam
 
 #hisat 2 morna 
 mkdir alignments/downsampled/morna
@@ -41,7 +44,8 @@ wget ftp://ftp.sanger.ac.uk/pub/gencode/Gencode_human/release_26/gencode.v26.ann
 gunzip gencode.v26.annotation.gtf.gz
 
 #create splice sites file
-python hisat2_extract_splice_sites.py gencode.v26.annotation.gtf > splicesites.txt
+berk=$(which hisat2_extract_splice_sites.py)
+python $berk gencode.v26.annotation.gtf > splicesites.txt
 
 #run alignment with known splicesites
 mkdir alignments/downsampled/annotated
