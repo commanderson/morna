@@ -49,4 +49,4 @@ python $berk gencode.v26.annotation.gtf > splicesites.txt
 
 #run alignment with known splicesites
 mkdir alignments/downsampled/annotated
-hisat2 -x /Users/andechri/Downloads/alignment/hg38/genome -S alignments/downsampled/annotated/ds_ann_alignment -1 ERR922713_1.fastq.gz.downsamp -2 ERR922713_2.fastq.gz.downsamp --known-splicesite-infile splicesites.txt
+hisat2 -x hg38/genome -S alignments/downsampled/annotated/ds_ann_alignment -1 ERR922713_1.fastq.gz.downsamp -2 ERR922713_2.fastq.gz.downsamp --known-splicesite-infile splicesites.txt
