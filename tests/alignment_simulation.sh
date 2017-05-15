@@ -49,4 +49,4 @@ python $extractor gencode.v26.annotation.gtf > splicesites.txt
 
 #run alignment with known splicesites
 mkdir alignments/downsampled/annotated
-hisat2 -x hg38/genome alignments/downsampled/annotated/ds_ann_alignment -1 ERR922713_1.fastq.gz.downsamp -2 ERR922713_2.fastq.gz.downsamp --known-splicesite-infile splicesites.txt | samtools view -bS > alignments/downsampled/annotated/ds_ann_alignment.bam
+hisat2 -x hg38/genome alignments/downsampled/annotated/ds_ann_alignment -1 ERR922713_1_downsamp.fastq.gz -2 ERR922713_2_downsamp.fastq.gz --known-splicesite-infile splicesites.txt | samtools view -bS > alignments/downsampled/annotated/ds_ann_alignment.bam
