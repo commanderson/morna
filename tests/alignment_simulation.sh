@@ -36,7 +36,7 @@ hisat2 -x hg38/genome -1 ERR922713_1_downsamp.fastq.gz -2 ERR922713_2_downsamp.f
 
 #hisat 2 morna 
 mkdir alignments/downsampled/morna
-python ../morna.py align -x ../v2master/v2master -v -d -m --aligner hisat2 -i hg38/genome -1 ERR922713_1_downsamp.fastq.gz -2 EERR922713_1_downsamp.fastq.gz -p1 alignments/downsampled/morna/morna_p1.sam -p2 alignments/downsampled/morna/morna_p2.sam --junction-file ../pooled_combined_jns.tsv.gz
+python ../morna.py align -x ../v2master/v2master -v -d -m --aligner hisat2 -i hg38/genome -1 ERR922713_1_downsamp.fastq.gz -2 EERR922713_2_downsamp.fastq.gz -p1 alignments/downsampled/morna/morna_p1.sam -p2 alignments/downsampled/morna/morna_p2.sam --junction-file ../pooled_combined_jns.tsv.gz
 
 #hisat 2 annotated
 #download gene annotation
