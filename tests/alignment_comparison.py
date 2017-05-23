@@ -9,6 +9,7 @@ mapping (coordinate + cigar string) in the master file
 import argparse
 import subprocess
 import sys
+from itertools import groupby
 
 _help_intro = \
 """alignment_comparison determines what portion of reads in each of a list of bam files have an identical mapping (coordinate + cigar string) present in a
@@ -33,14 +34,34 @@ if __name__ == '__main__':
     read_dict = {}
     process1 = subprocess.Popen(["samtools","view","-F","4",
                                  args.master], stdout=subprocess.PIPE)
-        
+    for name, group in groupby(iter(process1.stdout.readline, ''),
+                                             lambda x: x.split()[0]):
+        max_alignment_score=0
+        for read in group:
+            #Is it a max scoring alignment? 
+            #If replaces current, new list
+            #if equals current, add to list
+            #else do nothing
+            print read.split()[:3]
+        print "-------------------------"
+
     for i,line in enumerate(iter(process1.stdout.readline, '')):
         if (i%100 == 0):
             sys.stdout.write(str(i) + " lines into master file processing\r")
         fields = line.split()
         #name = (fields[0],fields[1])
         #rep = (fields[2],fields[3],fields[5])
-        read_dict[(fields[0],fields[1])] = (fields[2],fields[3],fields[5])
+        #The "key" which uniquely represents a read is the SAM fields 
+        #QNAME (query template name)
+        #FLAG (bitwise flag about the mapping)
+        #RNAME (reference sequence name)
+        #A given combination of these uniquely represents a specific read
+        #The mapping of that read is represented in the SAM fields
+        #POS (1-based leftmost mapping position of read)
+        #CIGAR (details of exact base mapping)
+        #If two reads have identical POS and CIGAR fields, 
+        #they have mapped identically.
+        read_dict[(fields[0],fields[1],fields[2])] = (fields[3],fields[5])
         
     for file in args.subfiles:
         sys.stdout.write("\n")
@@ -54,7 +75,7 @@ if __name__ == '__main__':
                                                         + " processing\r")
             num_mapped_reads += 1
             fields = line.split()
-            if read_dict[(fields[0],fields[1])] == (fields[2],fields[3],
+            if read_dict[(fields[0],fields[1],fields[2])] == (fields[3],
                                                                 fields[5]):
                 num_identical_mappings += 1
         print i
