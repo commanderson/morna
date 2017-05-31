@@ -8,12 +8,15 @@ Components
 The three main tools morna offers are index, search, and align.
 
 **morna index**
+
 Using a gzipped file of junctions with associated sample ids in intropolis-like format, Morna Index can create an index of samples with junction information represented in a dimensionality-reduced space.  
 
 **Usage**
+
     python morna.py index --intropolis sra_junctions.tsv.gz -x sra/sra_index --n-trees 10 -v -b 51200 -m  sra_metadata.tsv
 
 **Features**
+
 Creates each of the following index files for a data set of junctions:
 -An index using the [Annoy](https://github.com/spotify/annoy) module index storing feature-hashed junctions by internal sample id
 -A frequency index storing the frequency of each sample in the junctions file
@@ -66,6 +69,7 @@ Harvest junctions from incoming stream of sam-, bed-, or raw-formatted sample fi
 -Can also perform exact nearest neighbor search within the reduced-dimensional space
 
 **Arguments**
+
 '-x' or '--basename' (required)
 The path to the basename of the junction index; it expects to find an Annoy index (basename.annoy.mor), a dictionary that maps each junction to the number of samples in which it's found (basename.freq.mor), a stats file including the total number of samples (basename.stats.mor) in order to run
 
