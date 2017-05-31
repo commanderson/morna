@@ -7,12 +7,13 @@ Components
 --------
 The three main tools morna offers are index, search, and align.
 
-#morna index
+**morna index**
 Using a gzipped file of junctions with associated sample ids in intropolis-like format, Morna Index can create an index of samples with junction information represented in a dimensionality-reduced space.  
-Usage
+
+**Usage**
     python morna.py index --intropolis sra_junctions.tsv.gz -x sra/sra_index --n-trees 10 -v -b 51200 -m  sra_metadata.tsv
 
-Features
+**Features**
 Creates each of the following index files for a data set of junctions:
 -An index using the [Annoy](https://github.com/spotify/annoy) module index storing feature-hashed junctions by internal sample id
 -A frequency index storing the frequency of each sample in the junctions file
@@ -21,7 +22,8 @@ Creates each of the following index files for a data set of junctions:
 -A 100-sharded sqlite3 database storing the junction indexes found in each sample
 -(Optionally) A sqlite3 database associating metadata with each sample id.
 
-Arguments
+**Arguments**
+
 '--intropolis' (required)
 A file path to a gzipped file recording junctions across samples in "intropolis-like"  format
 
@@ -46,20 +48,24 @@ When writing the junctions-by-sample database, each sample has its own "buffer" 
 '-v' or '--verbose' (option flag)
 If this option flag is included, morna index will print various status and progress messages during index operation to stdout.
 
-#morna search
+**morna search**
 Using an index produced by morna index (or downloaded) perform approximate nearest neighbor search to find samples which resemble a given sample in the reduced-dimensional space.
-Usage
+
+**Usage**
+
     samtools view 201_UHR.bam|python morna.py search -x sra/sra_index -v -d -m -f sam
     
 or
     python morna.py search -x v2master/v2master -v -d -m -q 134
-Features
+
+**Features**
+
 Harvest junctions from incoming stream of sam-, bed-, or raw-formatted sample file, calculate its representation in the reduced-dimensional space of a specific morna index, and return the approximate nearest neighbors. 
 -Can optionally include distance information and metadata for each result
 -Alternately, can search for nearest neighbors to a specific sample id within the index
 -Can also perform exact nearest neighbor search within the reduced-dimensional space
 
-Arguments
+**Arguments**
 '-x' or '--basename' (required)
 The path to the basename of the junction index; it expects to find an Annoy index (basename.annoy.mor), a dictionary that maps each junction to the number of samples in which it's found (basename.freq.mor), a stats file including the total number of samples (basename.stats.mor) in order to run
 
@@ -91,11 +97,11 @@ If this option flag is enabled, search for exact nearest neighbor to query withi
 '-r' or '--results' (not required, default is 20)
 The number of nearest neighbor results to report
 
-#morna align
+**morna align**
 
-Usage
+**Usage**
  
-Features
+**Features**
 
 
 
