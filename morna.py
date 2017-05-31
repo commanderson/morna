@@ -97,6 +97,19 @@ def cosine_distance(v1,v2):
     """
     cosine_similarity = dot_prod(v1, v2)/ (magnitude(v1) * magnitude(v2))
     return 1-cosine_similarity
+
+def results_output(results):
+    """ output morna search results in human-readable fashion
+    
+        results: tuple of lists, definitely including sample ids and
+        also optionally adding distances and metadata
+    """
+    
+    for i in range(len(results[0])):
+        sys.stdout.write(str(i+1) + ".")
+        for list in results:
+             sys.stdout.write("\t" + str(list[i]))
+        sys.stdout.write("\n")
     
 def running_sum(rls):
     """ Generate list of present junction ids from our run-length_list
@@ -448,7 +461,7 @@ class MornaIndex(AnnoyIndex):
             conn.close()
 
 class MornaSearch(object):
-    """A class for searching our morna indexes, 
+    """A class for searching our morna indexes for approximate nearest neighbors 
         
         Three index files are needed when initializing: an Annoy index
         (basename.annoy.mor), a dictionary that maps each junction to the 
@@ -464,7 +477,7 @@ class MornaSearch(object):
             self.sample_count = int(stats_stream.readline())
             self.dim = int(stats_stream.readline())
         
-        self.query = defaultdict(list)
+        self.query = defaultdict(int)
         self.query_sample = [0.0 for _ in xrange(self.dim)]
         
         self.annoy_index = AnnoyIndex(self.dim)
@@ -529,7 +542,7 @@ class MornaSearch(object):
             
             No return value.
         """
-        self.query[tuple(junction[:3])] += junction[3]
+        self.query[tuple(junction[:3])] += int(junction[3])
                 
     def finalize_query(self):
         """Uses the 'self.query' dictionary to create a final query sample 
@@ -538,8 +551,8 @@ class MornaSearch(object):
            
            No return value.
         """
-        for junction in self.query:
-            hashable_junction = ' '.join(junction)        
+        for junction in self.query.keys():
+            hashable_junction = ' '.join(str(_) for _ in junction)        
             if (self.sample_frequencies[hashable_junction] == 0.0):
                 idf_value = 0
             else:
@@ -653,12 +666,11 @@ class MornaSearch(object):
             return results
             
             
-    def search_member_n(self, id, num_neighbors, search_k, 
+    def search_member_n(self, query_id, num_neighbors, search_k, 
                     include_distances=True, meta_db=False):
         """ Uses a given element of the annoy index to query it
 
-            id: the id in the annoy index (corresponds to sample id) of the 
-            element to use as the query
+            id: the sample_id  of the element to use as the query
             num_neighbors: an integer number of nearest neighbors to return
             search_k: an integer number of nodes to check while searching 
             the trees in the index; larger values lead to slower, more accurate 
@@ -673,16 +685,23 @@ class MornaSearch(object):
             a corresponding list of distances and/or a list of metadata keywords 
             found in a supplied metadata db.
         """
+        try:
+            internal_id = self.internal_id_map[query_id]
+        except key_error:
+            raise ValueError("Querying sample id " + str(sample_id) 
+            + " is not possible because no internal id is mapped to that " 
+            + "sample id. Likely no sample with that id was included " 
+            + "in the index.")
         if include_distances:
             results = self.annoy_index.get_nns_by_item(
-                                                 id, 
+                                                 internal_id, 
                                                  num_neighbors,
                                                  search_k,
                                                  include_distances
                                                 )
         else:
             results = (self.annoy_index.get_nns_by_item(
-                                                 id, 
+                                                 internal_id, 
                                                  num_neighbors,
                                                  search_k,
                                                  include_distances
@@ -1030,7 +1049,7 @@ if __name__ == '__main__':
                                     args.results, args.search_k,
                                     include_distances=args.distances,
                                      meta_db = args.metadata)
-            print results
+            results_output(results)
             quit()
         # Read BED or BAM
         if args.format == "sam":
@@ -1068,7 +1087,7 @@ if __name__ == '__main__':
                         if (float(shared)/len(results[0]) >= threshold/100.0):
                             sys.stderr.write("Converged after " + str(i) 
                                                 + "junctions.\n")
-                            print results
+                            results_output(results)
                             
                             quit()
                         else:
@@ -1076,7 +1095,7 @@ if __name__ == '__main__':
                                                 + "junctions.\n")
                             old_results = results[0]
                 sys.stderr.write("No convergence, but here's results:")
-                print results
+                results_output(results)
             else:
                 for i, junction in enumerate(junction_generator):
                     searcher.update_query(junction)
@@ -1092,11 +1111,11 @@ if __name__ == '__main__':
                             if (result in old_results):
                                 shared+=1
                         if (float(shared)/len(results[0]) >= threshold/100.0):
-                            print results
+                            results_output(results)
                             quit()
                         else:
                            old_results = results[0]
-                print results
+                results_output(results)
             
         else:
             if args.verbose:
@@ -1121,7 +1140,7 @@ if __name__ == '__main__':
                 results = (searcher.search_nn(args.results, args.search_k,
                             include_distances=args.distances,
                             meta_db = args.metadata))
-            print results
+            results_output(results)
             
         if args.subparser_name == 'align':
             filter = args.junction_filter.split(",")
