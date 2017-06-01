@@ -551,6 +551,7 @@ class MornaSearch(object):
            
            No return value.
         """
+        self.query_sample = [0.0 for _ in xrange(self.dim)]
         for junction in self.query.keys():
             hashable_junction = ' '.join(str(_) for _ in junction)        
             if (self.sample_frequencies[hashable_junction] == 0.0):
@@ -756,11 +757,11 @@ def add_search_parameters(subparser):
             default=False,
             help='display results mapped to metadata'
         )
-    subparser.add_argument('-c','--converge', metavar='<int>', type=int,
+    subparser.add_argument('-c','--convergence-backoff', metavar='<int>', type=int,
             required=False,
             default=None,
-            help=('attempt to converge on a solution with concordance equal'
-                  'to the given argument as a percentage (truncated to 0-100)')
+            help=('attempt to converge on a solution with this backoff interval'
+                  '(check after c, then 2c, then 4c, and stop when no change)')
         )
     subparser.add_argument('-q','--query-id', metavar='<int>', type=int,
             required=False,
@@ -1059,10 +1060,9 @@ if __name__ == '__main__':
         else:
             assert args.format == "raw"
             junction_generator = junctions_from_raw_stream(junction_stream)
-        if (args.converge) and (args.format == 'sam'):
-            threshold = args.converge
-            backoff = 100
-            old_results = []
+        if (args.convergence_backoff) and (args.format == 'sam'):
+            backoff = args.convergence_backoff
+            old_results = [-1 for _ in range(args.results)]
             if args.verbose:
                 for i, junction in enumerate(junction_generator):
                     if (i % 100 == 0):
@@ -1078,21 +1078,24 @@ if __name__ == '__main__':
                                     args.search_k,
                                     include_distances=args.distances,
                                      meta_db = args.metadata))
-                        shared = 0
-                        for result in results[0]:
-                            if (result in old_results):
-                                shared+=1
-                        sys.stderr.write(str(shared) + 
-                                    "Shared junctions with old results")
-                        if (float(shared)/len(results[0]) >= threshold/100.0):
-                            sys.stderr.write("Converged after " + str(i) 
-                                                + "junctions.\n")
+                        same = True
+                        for j,result in results[0]:
+                            if not (result == old_results[j]):
+                                same = False
+
+                        if same:
+                            sys.stderr.write("Converged after "+ str(i) 
+                                                + " junctions.\n")
                             results_output(results)
                             
                             quit()
                         else:
                             sys.stderr.write("Not converged after " + str(i) 
-                                                + "junctions.\n")
+                                                + " junctions.\n")
+                            sys.stderr.write("Old results:\n" + str(old_results)
+                                                             + "\n")
+                            sys.stderr.write("New results:\n" + str(results[0])
+                                                             + "\n")
                             old_results = results[0]
                 sys.stderr.write("No convergence, but here's results:")
                 results_output(results)
@@ -1101,20 +1104,22 @@ if __name__ == '__main__':
                     searcher.update_query(junction)
                     if (i == backoff):
                         backoff += backoff
+                        sys.stderr.write("\n")
                         searcher.finalize_query()
                         results = (searcher.search_nn(args.results, 
                                     args.search_k,
                                     include_distances=args.distances,
                                      meta_db = args.metadata))
-                        shared = 0
-                        for result in results[0]:
-                            if (result in old_results):
-                                shared+=1
-                        if (float(shared)/len(results[0]) >= threshold/100.0):
+                        same = True
+                        for j,result in results[0]:
+                            if not (result == old_results[j]):
+                                same = False
+
+                        if same:
                             results_output(results)
                             quit()
                         else:
-                           old_results = results[0]
+                            old_results = results[0]
                 results_output(results)
             
         else:
