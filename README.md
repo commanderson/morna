@@ -31,7 +31,7 @@ Creates each of the following index files for a data set of junctions:
 
 A file path to a gzipped file recording junctions across samples in "intropolis-like"  format
 
-`-x` or `--basename` (Not required, default is "morna")
+`-x`, `--basename` (Not required, default is "morna")
 
 A base file path for the index files to create; they will be called {basename}.annoy.mor, {basename}.freq.mor, {basename}.map.mor, {basename}.stats.mor, {basename}.sh00.junc.mor through {basename}.sh99.junc.mor, and {basename}.meta.mor with respect to the order mentioned above.
 
@@ -43,19 +43,19 @@ The integer dimensional size of the hashed feature space, used for the size of t
 
 An integer argument passed to the annoy module in building the annoy index, this controls the number of trees in the forest that annoy uses to efficiently search for approximate nearest neighbors. A larger value will give more accurate results, but larger indexes.
 
-`-s` or `--sample-count` (not required, calculated if missing)
+`-s`, `--sample-count` (not required, calculated if missing)
 
 The integer number of distinct sample ids in the intropolis file. If this argument is not provided, morna index will parse through the file line by line and count distinct sample ids. As this can be cumbersome for very large files, it can save considerable time to provide this option, but you must be correct or the index will be built incorrectly.
 
-`-t` or `--sample-threshold` (not required, default is 100)
+`-t`, `--sample-threshold` (not required, default is 100)
 
 The integer minimum number of samples in which a junction must be present to be added to the index. This will not keep it from being added to the junctions-by-sample database index.
 
-`-b` or `--buffer-size` (not required, default 1024)
+`-b`, `--buffer-size` (not required, default 1024)
 
 When writing the junctions-by-sample database, each sample has its own "buffer" which is a list of strings containing junction information in run-length-encoded format. When the size of theses string lists in bytes exceeds this argument, they are written to the table and cleared.
 
-`-v` or `--verbose` (option flag)
+`-v`, `--verbose` (option flag)
 
 If this option flag is included, morna index will print various status and progress messages during index operation to stdout.
 
