@@ -1,7 +1,7 @@
 morna
 =====
-Morna is a collection of tools for indexing existing RNA-seq data, searching for samples with similar expression patterns, and using this information to informa alignment.
-Morna search can be used to test if a sample’s global expression patterns are similar to those of samples from the same tissue or cell type and may uncover significant contamination. Morna can also aid alignment by improving detection of low-coverage splice junctions without the same sacrifices as employing a full annotation, and may be useful to impute junctions that might have been found had a sample been sequenced more deeply.
+Morna is a collection of tools for indexing existing RNA-seq data, searching for samples with similar expression patterns, and using this information to inform alignment.
+Morna search can be used to test if a sample’s global expression patterns are similar to those of samples from the same tissue or cell type and may uncover significant contamination. Morna can also aid alignment by improving detection of low-coverage splice junctions without the same sacrifices as employing a full gene annotation, and may be useful to impute junctions that might have been found had a sample been sequenced more deeply.
 
 Components
 ----------
@@ -27,35 +27,35 @@ Creates each of the following index files for a data set of junctions:
 
 **Arguments**
 
-'--intropolis' (required)
+`--intropolis` (required)
 
 A file path to a gzipped file recording junctions across samples in "intropolis-like"  format
 
-'-x' or '--basename' (Not required, default is "morna")
+`-x`, `--basename` (Not required, default is "morna")
 
 A base file path for the index files to create; they will be called {basename}.annoy.mor, {basename}.freq.mor, {basename}.map.mor, {basename}.stats.mor, {basename}.sh00.junc.mor through {basename}.sh99.junc.mor, and {basename}.meta.mor with respect to the order mentioned above.
 
-'--features' (not required, default is 3000)
+`--features` (not required, default is 3000)
 
 The integer dimensional size of the hashed feature space, used for the size of the annoy index; lower numbers will have faster indexing and searching while higher numbers will potentially give more accurate approximate nearest neighbor search results.
 
-'--n-trees' (not required, default is 200)
+`--n-trees` (not required, default is 200)
 
 An integer argument passed to the annoy module in building the annoy index, this controls the number of trees in the forest that annoy uses to efficiently search for approximate nearest neighbors. A larger value will give more accurate results, but larger indexes.
 
-'-s' or '--sample-count' (not required, calculated if missing)
+`-s`, `--sample-count` (not required, calculated if missing)
 
 The integer number of distinct sample ids in the intropolis file. If this argument is not provided, morna index will parse through the file line by line and count distinct sample ids. As this can be cumbersome for very large files, it can save considerable time to provide this option, but you must be correct or the index will be built incorrectly.
 
-'-t' or '--sample-threshold' (not required, default is 100)
+`-t`, `--sample-threshold` (not required, default is 100)
 
 The integer minimum number of samples in which a junction must be present to be added to the index. This will not keep it from being added to the junctions-by-sample database index.
 
-'-b' or '--buffer-size' (not required, default 1024)
+`-b`, `--buffer-size` (not required, default 1024)
 
 When writing the junctions-by-sample database, each sample has its own "buffer" which is a list of strings containing junction information in run-length-encoded format. When the size of theses string lists in bytes exceeds this argument, they are written to the table and cleared.
 
-'-v' or '--verbose' (option flag)
+`-v`, `--verbose` (option flag)
 
 If this option flag is included, morna index will print various status and progress messages during index operation to stdout.
 
@@ -80,44 +80,44 @@ Harvest junctions from incoming stream of sam-, bed-, or raw-formatted sample fi
 
 **Arguments**
 
-'-x' or '--basename' (required)
+`-x`, `--basename` (required)
 
 The path to the basename of the junction index; it expects to find an Annoy index (basename.annoy.mor), a dictionary that maps each junction to the number of samples in which it's found (basename.freq.mor), a stats file including the total number of samples (basename.stats.mor) in order to run
 
-'-v' or '--verbose' (option flag)
+`-v`, `--verbose` (option flag)
 
 If this option flag is included, morna search will print various status and progress messages during query building and searching to stderr.
 
-'--search-k' (not required, default is 100)
+`--search-k` (not required, default is 100)
 
 The integer number of nodes to inspect when searching the Annoy index. Larger numbers give more accurate results (better approximation of nearest neighbors) but increase search time.
 
-'-f' or '--format' (not required, default is "sam")
+`-f`, `--format` (not required, default is "sam")
 
 A string that is one of {sam, bed, raw} which defines the format of the query file. Raw format is tab separated lines containing chromosome, start position, end position, and coverage, like this:
 chr1    10253   180889  0
 
-'-d' or '--distances' (option flag)
+`-d`, `--distances` (option flag)
 
 If this option flag is enabled, include cosine distances to each result along with the result.
 
-'-m' or '--metadata' (option flag)
+`-m`, `--metadata` (option flag)
 
 If this option flag is enabled, include associated metadata with results; metadata file must be found at (basename.meta.mor) and must include entries for all sample ids included in results.
 
-'-c' or '--converge' (not required, default is False)
+`-c`, `--converge` (not required, default is False)
 
 Attempt to converge on a solution with concordance equal to the given argument as a percentage (truncated to 0-100). Not functional, tested, or recommended, will be replaced with exponential back-off algorithm soon(tm).
 
-'-q','--query-id' (not required, default is None)
+`-q`,`--query-id` (not required, default is None)
 
 Integer sample id that is found in the index; if provided, the search is for nearest neighbors to the sample (format argument will be ignored in this case).
 
-'-e' or '--exact' (option flag)
+`-e`, `--exact` (option flag)
 
 If this option flag is enabled, search for exact nearest neighbor to query within morna's annoy index rather than using annoy's hyperplane division algorithm.
 
-'-r' or '--results' (not required, default is 20)
+`-r`, `--results` (not required, default is 20)
 
 The number of nearest neighbor results to report
 
@@ -191,4 +191,3 @@ python morna.py index --intropolis pooled_combined_jns.tsv.gz -x mastershards/ma
 utilities:
 all python scripts run with Python 2.7.12
 [GCC 4.2.1 (Based on Apple Inc. build 5658) (LLVM build 2336.11.00)]
-
