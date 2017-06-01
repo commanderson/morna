@@ -63,7 +63,7 @@ if __name__ == '__main__':
     source_offset = {}
     for i,source in enumerate(args.sources):
         source_offset[source] = i * args.increment
-        
+    print source_offset    
     with gzip.open(args.input) as input_handle,\
      gzip.open(args.outfile, "w") as out_handle:
         for i, line in enumerate(input_handle):
