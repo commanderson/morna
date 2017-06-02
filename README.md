@@ -1,13 +1,13 @@
-#morna
-=====
+# morna
+
 Morna is a collection of tools for indexing existing RNA-seq data, searching for samples with similar expression patterns, and using this information to inform alignment.
 Morna search can be used to test if a sample’s global expression patterns are similar to those of samples from the same tissue or cell type and may uncover significant contamination. Morna can also aid alignment by improving detection of low-coverage splice junctions without the same sacrifices as employing a full gene annotation, and may be useful to impute junctions that might have been found had a sample been sequenced more deeply.
 
-##Components
-----------
+## Components
+
 The three main tools morna offers are index, search, and align.
 
-###morna index
+### morna index
 
 Using a gzipped file of junctions with associated sample ids in intropolis-like format, Morna Index can create an index of samples with junction information represented in a dimensionality-reduced space.  
 
@@ -65,7 +65,7 @@ When writing the junctions-by-sample database, each sample has its own "buffer" 
 
 If this option flag is included, morna index will print various status and progress messages during index operation to stdout.
 
-###morna search
+### morna search
 
 Using an index produced by morna index (or downloaded) perform approximate nearest neighbor search to find samples which resemble a given sample in the reduced-dimensional space.
 
@@ -137,32 +137,9 @@ The number of nearest neighbor results to report
 **Features**
 
 
+# Additional Tools in /tests
 
-Data Preparation
-----------------
-Intropolis data was downloaded from figshare as part of "intropolis: exon-exon junctions across publicly available RNA-seq samples on the Sequence Read Archive"
-https://figshare.com/articles/intropolis_exon-exon_junctions_across_publicly_available_RNA-seq_samples_on_the_Sequence_Read_Archive/3811680/1
-Exon-exon junction data:
-intropolis.v1.hg19.tsv.gz
-https://ndownloader.figshare.com/files/5935809
-Junction to SRA mapping data:
-intropolis.idmap.v1.hg19.tsv
-https://ndownloader.figshare.com/files/5935797
-
-
-
-Created filtered files using: 
-gzip -cd intropolis.v1.hg19.tsv.gz | awk -F',' 'NF >= 199'>intropolis_junctions_100samples.tsv
--To restrict to only junctions present in at least 100 samples
-gzip -cd intropolis.v1.hg19.tsv.gz | awk -F',' 'NF >= 1999'>intropolis_junctions_1000samples.tsv
--To restrict to only junctions present in at least 1000 samples.
-
-
-
-Additional Tools in /tests
---------------------------
-
-# Pooling Junction Lists
+## Pooling Junction Lists
 
 In order to create a master index using morna index, we had to create a pooled junction list combining the junction contents of tcga, sra, and gtex. Additionally, in order to include metadata information with this index, we had to combine the metadata files which mapped the sample ids in each source to a set of metadata
 
@@ -192,7 +169,7 @@ gzip -cd combined_junctions.tsv.gz | sort > sorted_cjs.tsv
 gzip sorted_cjs.tsv
 python pool_junction_lists.py -i sorted_cjs.tsv.gz -s sra tcga gtex -m -n 25000 -o pooled_combined_jns.tsv.gz
 
-# Creating Master Index:
+## Creating Master Index:
 mkdir mastershards
 python morna.py index --intropolis pooled_combined_jns.tsv.gz -x mastershards/master_index --n-trees 10 -v -b 32768 -m sra_tcga_gtex_metadata.tsv 
 
@@ -200,3 +177,22 @@ python morna.py index --intropolis pooled_combined_jns.tsv.gz -x mastershards/ma
 utilities:
 all python scripts run with Python 2.7.12
 [GCC 4.2.1 (Based on Apple Inc. build 5658) (LLVM build 2336.11.00)]
+
+## Data Preparation
+
+Intropolis data was downloaded from figshare as part of "intropolis: exon-exon junctions across publicly available RNA-seq samples on the Sequence Read Archive"
+https://figshare.com/articles/intropolis_exon-exon_junctions_across_publicly_available_RNA-seq_samples_on_the_Sequence_Read_Archive/3811680/1
+Exon-exon junction data:
+intropolis.v1.hg19.tsv.gz
+https://ndownloader.figshare.com/files/5935809
+Junction to SRA mapping data:
+intropolis.idmap.v1.hg19.tsv
+https://ndownloader.figshare.com/files/5935797
+
+
+
+Created filtered files using: 
+gzip -cd intropolis.v1.hg19.tsv.gz | awk -F',' 'NF >= 199'>intropolis_junctions_100samples.tsv
+-To restrict to only junctions present in at least 100 samples
+gzip -cd intropolis.v1.hg19.tsv.gz | awk -F',' 'NF >= 1999'>intropolis_junctions_1000samples.tsv
+-To restrict to only junctions present in at least 1000 samples.
