@@ -1,13 +1,13 @@
-morna
+#morna
 =====
 Morna is a collection of tools for indexing existing RNA-seq data, searching for samples with similar expression patterns, and using this information to inform alignment.
 Morna search can be used to test if a sample’s global expression patterns are similar to those of samples from the same tissue or cell type and may uncover significant contamination. Morna can also aid alignment by improving detection of low-coverage splice junctions without the same sacrifices as employing a full gene annotation, and may be useful to impute junctions that might have been found had a sample been sequenced more deeply.
 
-Components
+##Components
 ----------
 The three main tools morna offers are index, search, and align.
 
-**morna index**
+###morna index
 
 Using a gzipped file of junctions with associated sample ids in intropolis-like format, Morna Index can create an index of samples with junction information represented in a dimensionality-reduced space.  
 
@@ -18,12 +18,18 @@ Using a gzipped file of junctions with associated sample ids in intropolis-like 
 **Features**
 
 Creates each of the following index files for a data set of junctions:
-*An index using the [Annoy](https://github.com/spotify/annoy) module index storing feature-hashed junctions by internal sample id
-*A frequency index storing the frequency of each sample in the junctions file
-*A map from sample ids (in the input file) to sequential internal ids
-*A stats file including number of samples and size of hashed feature space
-*A 100-sharded sqlite3 database storing the junction indexes found in each sample
-*(Optionally) A sqlite3 database associating metadata with each sample id.
+  
+  *An index using the [Annoy](https://github.com/spotify/annoy) module index storing feature-hashed junctions by internal sample id
+  
+  *A frequency index storing the frequency of each sample in the junctions file
+  
+  *A map from sample ids (in the input file) to sequential internal ids
+  
+  *A stats file including number of samples and size of hashed feature space
+  
+  *A 100-sharded sqlite3 database storing the junction indexes found in each sample
+  
+  *(Optionally) A sqlite3 database associating metadata with each sample id.
 
 **Arguments**
 
@@ -59,7 +65,7 @@ When writing the junctions-by-sample database, each sample has its own "buffer" 
 
 If this option flag is included, morna index will print various status and progress messages during index operation to stdout.
 
-**morna search**
+###morna search
 
 Using an index produced by morna index (or downloaded) perform approximate nearest neighbor search to find samples which resemble a given sample in the reduced-dimensional space.
 
@@ -74,9 +80,12 @@ or
 **Features**
 
 Harvest junctions from incoming stream of sam-, bed-, or raw-formatted sample file, calculate its representation in the reduced-dimensional space of a specific morna index, and return the approximate nearest neighbors. 
-*Can optionally include distance information and metadata for each result
-*Alternately, can search for nearest neighbors to a specific sample id within the index
-*Can also perform exact nearest neighbor search within the reduced-dimensional space
+
+  *Can optionally include distance information and metadata for each result
+  
+  *Alternately, can search for nearest neighbors to a specific sample id within the index
+  
+  *Can also perform exact nearest neighbor search within the reduced-dimensional space
 
 **Arguments**
 
