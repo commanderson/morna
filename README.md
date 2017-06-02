@@ -19,15 +19,15 @@ Using a gzipped file of junctions with associated sample ids in intropolis-like 
 
 Creates each of the following index files for a data set of junctions:
   
-  *An index using the [Annoy](https://github.com/spotify/annoy) module index storing feature-hashed junctions by internal sample id
+- An index using the [Annoy](https://github.com/spotify/annoy) module index storing feature-hashed junctions by internal sample id
   
-  *A frequency index storing the frequency of each sample in the junctions file
+- A frequency index storing the frequency of each sample in the junctions file
   
-  *A map from sample ids (in the input file) to sequential internal ids
+- A map from sample ids (in the input file) to sequential internal ids
   
-  *A stats file including number of samples and size of hashed feature space
+- A stats file including number of samples and size of hashed feature space
   
-  *A 100-sharded sqlite3 database storing the junction indexes found in each sample
+- A 100-sharded sqlite3 database storing the junction indexes found in each sample
   
   *(Optionally) A sqlite3 database associating metadata with each sample id.
 
@@ -81,11 +81,11 @@ or
 
 Harvest junctions from incoming stream of sam-, bed-, or raw-formatted sample file, calculate its representation in the reduced-dimensional space of a specific morna index, and return the approximate nearest neighbors. 
 
-  *Can optionally include distance information and metadata for each result
+- Can optionally include distance information and metadata for each result
   
-  *Alternately, can search for nearest neighbors to a specific sample id within the index
+- Alternately, can search for nearest neighbors to a specific sample id within the index
   
-  *Can also perform exact nearest neighbor search within the reduced-dimensional space
+- Can also perform exact nearest neighbor search within the reduced-dimensional space
 
 **Arguments**
 
