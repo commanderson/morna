@@ -852,8 +852,8 @@ if __name__ == '__main__':
     add_search_parameters(align_parser)
     align_parser.add_argument('--aligner', '-a', metavar='<exe>', type=str,
             required=False,
-            default='STAR',
-            help='STAR or HISAT(2) binary'
+            default='hisat2',
+            help='One of STAR, hisat, or hisat2'
         )
     align_parser.add_argument('-1', '--mates-1', metavar='<m1>',
             type=str, nargs='+',
@@ -896,7 +896,7 @@ if __name__ == '__main__':
             help='filename for second pass alignment file output by aligner'
         )
     align_parser.add_argument('--junction-filter', type=str, required=False,
-        default='.05,5',
+        default=".05,5",
         help='Two part junction filter settings separated by comma. Only retain' 
              'junctions for alignment found in at least {first part} proportion'
              'of result samples, or junctions with at least {second part}'
@@ -1065,7 +1065,7 @@ if __name__ == '__main__':
             old_results = [-1 for _ in range(args.results)]
             if args.verbose:
                 for i, junction in enumerate(junction_generator):
-                    if (i % 100 == 0):
+                    if (i % 1000 == 0):
                         sys.stderr.write( str(i) 
                                          + " junctions into query sample\r")
                         sys.stderr.flush()
@@ -1079,7 +1079,7 @@ if __name__ == '__main__':
                                     include_distances=args.distances,
                                      meta_db = args.metadata))
                         same = True
-                        for j,result in results[0]:
+                        for j,result in enumerate(results[0]):
                             if not (result == old_results[j]):
                                 same = False
 
@@ -1097,7 +1097,13 @@ if __name__ == '__main__':
                             sys.stderr.write("New results:\n" + str(results[0])
                                                              + "\n")
                             old_results = results[0]
-                sys.stderr.write("No convergence, but here's results:")
+                sys.stderr.write("No convergence after, " + str(i) 
+                                        + " junctions, but here's results:\n")
+                searcher.finalize_query()
+                results = (searcher.search_nn(args.results, 
+                                args.search_k,
+                                include_distances=args.distances,
+                                 meta_db = args.metadata))
                 results_output(results)
             else:
                 for i, junction in enumerate(junction_generator):
@@ -1111,7 +1117,7 @@ if __name__ == '__main__':
                                     include_distances=args.distances,
                                      meta_db = args.metadata))
                         same = True
-                        for j,result in results[0]:
+                        for j,result in enumerate(results[0]):
                             if not (result == old_results[j]):
                                 same = False
 

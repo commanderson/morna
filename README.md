@@ -29,7 +29,7 @@ Creates each of the following index files for a data set of junctions:
   
 - A 100-sharded sqlite3 database storing the junction indexes found in each sample
   
-  *(Optionally) A sqlite3 database associating metadata with each sample id.
+- (Optionally) A sqlite3 database associating metadata with each sample id.
 
 **Arguments**
 
@@ -132,10 +132,71 @@ The number of nearest neighbor results to report
 
 **morna align**
 
+By using the results of a first pass of alignment as a search query, then using the junctions found in the search results as an annotation for a second round of alignment, morna align aims to avoid loss of precision common to annotated protocols while improving recall of low-coverage junctions over non-annotated protocols.
+
 **Usage**
+
+python morna.py align -x v2master/v2master -v -d -m --aligner hisat2 -i alignment/hg38/genome -1 sm101/sample_RNA170210CC_DNA-17-00536_S1_R1_001.fastq.gz -2 sm101/sample_RNA170210CC_DNA-17-00536_S1_R2_001.fastq.gz -p1 sm101/RNA170210CC_out.sam -p2 sm101/RNA170210CC_out2.sam --aligner-args "\-p 2" --junction-file pooled_combined_jns.tsv.gz
  
 **Features**
 
+Runs an alignment pass, stores its output, uses it as a morna search query, retrieves the junctions from the samples returned as search results, and then uses this set of junctions as a known junction list for a second pass of alignment.
+
+- Supports hisat, hisat2, and STAR aligners with standardized input arguments
+  
+- Can skip first pass if single-aligned sam is already present
+  
+- Supports all morna search arguments to modify the search and accepts additional arguments to pass directly to the aligner as well
+
+**Arguments**
+
+`--aligner`, `-a` (not required, default is "hisat2")
+
+String declaring which aligner to use; currently accepts "hisat2", "hisat", and "STAR"
+
+`-1`, `--mates-1` (required to have either -U or this and -2)
+
+Space-separated list of files with #1 mates for paired end reads
+
+`-2`, `--mates-2` (required to have either -U or this and -1)
+
+Space-separated list of files with #2 mates for paired end reads
+
+`-U`, `--unpaired` (required to have either -this or -1 and -2)
+
+Space-separated list of files with unpaired reads
+
+`-i`, `--index`
+
+String path to the basename of the reference genome, or directory; this should match the index used to generate the junction data used to create the morna index.
+
+`--aligner-args`
+
+A string of additional aligner arguments as they would be passed to the aligner, though currently must be enclosed in quotes ("") and each - must be escaped by a backslash, so to pass the arguments '-p 2 -q' one would include '--aligner-args "\-p 2 \-q"'
+
+`-p1`, `--pass1-sam`
+
+Filename for first pass alignment file output by aligner
+
+`-p2`, `--pass2-sam`
+
+Filename for second pass alignment file output by aligner
+
+`--junction-filter` (not required, default is ".05,5")
+
+String representing a two part junction filter settings separated by comma. Only retain junctions for alignment found in at least {first part} proportion of result samples, or junctions with at least {second part} coverage in any one result sample.
+
+`--junction-file` (required)
+
+File path to gzipped file with junction name elements in same order as file used to create index (that file will do in a pinch)
+
+`-pa`, `--previous-alignment` (option flag)
+
+If this flag is enabled, use the file at pass1_sam arg as a previous alignment (skip first alignment pass and go straight to search).
+
+`-sf`, `--splicefile` (not required, default is None)
+
+If provided, this is the filepath for the output of an intropolis-like file with junctions retained from  the search results (only change to intropolis-like format is addition of ranking of samples which provided junction)
 
 # Additional Tools in /tests
 
