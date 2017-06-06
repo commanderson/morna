@@ -17,8 +17,9 @@ from itertools import groupby
 _help_intro = \
 """alignment_comparison determines what portion of reads in each of a list of bam files have an identical mapping (coordinate + cigar string) present in a
 master bam file. 
+NOTE:
 Requires that reads be sorted by read name aka the QNAME field-
-use samtools sort -n to get these
+use samtools sort -n to get files sorted this way
 """
 
 if __name__ == '__main__':
@@ -44,54 +45,136 @@ if __name__ == '__main__':
     read_dict = {}
     process1 = subprocess.Popen(["samtools","view","-F","4",
                                  args.master], stdout=subprocess.PIPE)
-                                 
+    #some high-level variables needed before looping                             
     sub_iterators = []
     current_read_groups = []
+    aligned_reads_in_master = 0
+    
+    aligned_reads_in_subfiles = [0 for _ in args.subfiles]
+    precision_scores = [0.0 for _ in args.subfiles]
+    recall_scores = [0.0 for _ in args.subfiles]
+    sub_finished = False #flag to shortcut if all subalignments are finished
+    
     for file in args.subfiles:
         process_sub = subprocess.Popen(["samtools","view","-F","4",
                                      file], stdout=subprocess.PIPE)
         sub_iterators.append(groupby(iter(process_sub.stdout.readline, ''),
-                                             lambda x: x.split()[0]))
+                                lambda x: x.split()[0] + "_" + x.split()[1]))
+        
     for iterator in sub_iterators:
         current_read_groups.append(next(iterator))
-        
+    
+    
+    #We must loop through every read name group in master file
     for name, group in groupby(iter(process1.stdout.readline, ''),
-                                             lambda x: x.split()[0]):
-        max_alignment_score=-99999999999
-        alignments_list = []
-        for alignment in group:
-            fields = alignment.split()
-            score = int(fields[11].strip("AS:i"))
-            #Is it a max scoring alignment?
-            if score > max_alignment_score:
-                max_alignment_score = score
-                alignments_list = [(fields[0],fields[3],fields[5],)]
-            #if equals current, add to list
-            elif score == max_alignment_score:
-                alignments_list.append((fields[0],fields[3],fields[5],))
-            #else do nothing
-        
+                                lambda x: x.split()[0] + "_" + x.split()[1]):
+        aligned_reads_in_master += 1
         if args.verbose:
-            print "--------------------------------------------------"
-            sys.stdout.write("Alignments in this group:\n")
-            for entry in alignments_list:
-                sys.stdout.write(str(entry) + "\n")
-            sys.stdout.write("Max score: " + str(max_alignment_score) + "\n")
-        for i,file in enumerate(args.subfiles):
-            #if the current group from that file has the same read name
-            if current_read_groups[i][0] == name:
-                #then we need to look at the alignments in that group in subfile
-                #to see how many from our list are matched
-                #TODO: FIND HIGHEST SCORING LIST HERE TOO?
-                matching = 0.0
-                for sub_alignment in current_read_groups[i][1]:
-                    sub_fields = sub_alignment.split()
-                    if (sub_fields[0],sub_fields[3],
-                                        sub_fields[5],) in alignments_list:
-                        matching += 1
-                matching /= 
-                    
-                
-        #for name, group in groupby(iter(process2.stdout.readline, ''),
-        #                                     lambda x: x.split()[0]):
+            sys.stdout.write("Considering master read " + name + "\n")
+        if sub_finished:
+            continue
+        #if the group is not present in any subfile we can skip it
+        current_subfile_names = [pair[0] for pair in current_read_groups]
+        if name in current_subfile_names:
+            #once we confirm that one or more subfile read names matches the 
+            #current master file read name, we get to work finding the highest
+            #scoring alignments for the master file
+            max_alignment_score=-99999999999
+            alignments_list = []
+            for alignment in group:
+                fields = alignment.split()
+                score = int(fields[11].strip("AS:i"))
+                #Is it a max scoring alignment?
+                #If it's the new max, make a new list with just it
+                if score > max_alignment_score:
+                    max_alignment_score = score
+                    alignments_list = [(fields[0],fields[3],fields[5],)]
+                #If it ties the max, add it to the list of max scorers
+                elif score == max_alignment_score:
+                    alignments_list.append((fields[0],fields[3],fields[5],))
+                #else do nothing
         
+            if args.verbose:
+                sys.stdout.write("----------------------mainalign-------"
+                                                            + "------------\n")
+                sys.stdout.write("Alignments in this group:\n")
+                for entry in alignments_list:
+                    sys.stdout.write(str(entry) + "\n")
+                sys.stdout.write("Max score: " + str(max_alignment_score) 
+                                                                    + "\n")
+            #Then, we must find the max scored alignments for the subfile(s)
+            #with matching read name
+            for i,file in enumerate(args.subfiles):
+                #if the current group from that file has the same read name
+                if current_subfile_names[i] == name:
+                    aligned_reads_in_subfiles[i] += 1
+                    #then we need to look at the alignments in that group
+                    #to see how many from our list are matched
+                    #TODO: FIND HIGHEST SCORING LIST HERE TOO?
+                    matching = 0.0
+                    max_sub_alignment_score=-99999999999
+                    sub_alignments_list = []
+                    for sub_alignment in current_read_groups[i][1]:
+                        sub_fields = sub_alignment.split()
+                        sub_score = int(sub_fields[11].strip("AS:i"))
+                        #Is it a max scoring sub-alignment?
+                        #If it's the new max, make a new list with just it
+                        if sub_score > max_sub_alignment_score:
+                            max_sub_alignment_score = sub_score
+                            sub_alignments_list = [(sub_fields[0],
+                                                sub_fields[3],sub_fields[5],)]
+                        #If it ties the max, add it to the list of max scorers
+                        elif sub_score == max_sub_alignment_score:
+                            sub_alignments_list.append((sub_fields[0],
+                                                sub_fields[3],sub_fields[5],))
+                        #else do nothing
+                
+                
+                    if args.verbose:
+                        sys.stdout.write("^^^^^^^^^^^^^subalign " 
+                                            + "^^^^^^^^^^^^^^^^^^^^^^^^^^^\n")
+                        
+                        sys.stdout.write("Alignments in this group:\n")
+                        for entry in alignments_list:
+                            sys.stdout.write(str(entry) + "\n")
+                        sys.stdout.write("Max score: " + 
+                                        str(max_alignment_score) + "\n")
+                    
+                    #Now, we take the size of the intersection of the master 
+                    #file's list of highest-scoring alignments and 
+                    #this sub alignment's list
+                    for sub_alignment in sub_alignments_list:
+                        if sub_alignment in alignments_list:
+                            matching += 1.0
+                    #precision is what proportion of the highest-scoring 
+                    #alignments in the sub file are in the master file
+                    precision_scores[i] += matching / len(sub_alignments_list)
+                    
+                    #recall is what proportion of highest-scoring alignments in 
+                    #the master file are in the sub file
+                    recall_scores[i] += matching / len(alignments_list)
+                    
+                    #Lastly, the iterator for this subfile is moved 
+                    #to the next read group, since the master iterator 
+                    #has reached it.
+                    try:
+                        current_read_groups[i] = next(sub_iterators[i])
+                    except StopIteration:
+                        #If our iterators have reached their end, note this with
+                        #a tuple of None values
+                        current_read_groups[i] = (None,None)
+                        #If all iterators are finished, flag to shortcut 
+                        if [(None,None) for pair 
+                                in current_read_groups] ==  current_read_groups:
+                            sub_finished = True
+    for i,score in enumerate(precision_scores):
+        precision_scores[i] /= aligned_reads_in_subfiles[i]
+        recall_scores[i] /= aligned_reads_in_master
+    
+    sys.stdout.write("Of " + str(aligned_reads_in_master) + " aligned reads in " 
+            + "the master file:\n")
+            
+    for i,file in enumerate(args.subfiles):
+        sys.stdout.write("In file " + file + ":\n")
+        sys.stdout.write("Precision of " + str(precision_scores[i]) + "\n")
+        sys.stdout.write("Recall of " + str(recall_scores[i]) + "\n")
