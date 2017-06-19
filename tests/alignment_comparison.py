@@ -14,11 +14,12 @@ Note the concept of fractional mappings - if master file has 4 equally high scor
 
 def go(master, subfiles, detailed_stats = True, verbose = False):
     """ Runs the actual comparison; assumes that all subfiles and the masterfile 
-        have been sorted by read name and FLAG in the same order - that is,
+        have been sorted by read name and FLAG in alphanueric order - that is,
         if any subfile has e.g. reads 
         ERR922713.160930574_HS3_322:7:2206:10273:60668  147
         ERR922713.160930574_HS3_322:7:2206:10273:60668  99
-        in that order, then they must also be in that order in the master file
+        they must be in that order, and they must also be in that 
+        order in the master file
         use the same sorting operation for both types of files!
         
     """
@@ -59,9 +60,9 @@ def go(master, subfiles, detailed_stats = True, verbose = False):
         for i, subgroup in enumerate(current_read_groups):
             while ((current_read_groups[i][0] < name) 
                     and current_read_groups[i][0] != None): 
-                print("in file " +str(i) + " subgroup name " 
-                + current_read_groups[i][0] + " sorts before " + name 
-                + " so continuing.")
+                #print("in file " +str(i) + " subgroup name " 
+                #+ current_read_groups[i][0] + " sorts before " + name 
+                #+ " so continuing.")
                 try:
                     current_read_groups[i] = next(sub_iterators[i])
                 except StopIteration:
@@ -74,9 +75,9 @@ def go(master, subfiles, detailed_stats = True, verbose = False):
                         sub_finished = True
                 aligned_reads_in_subfiles[i] += 1
         
-        print("For master group " + name + ", stabilised with subgroup names ")
-        for i, subgroup in enumerate(current_read_groups):
-            print(subgroup[0])
+        #print("For master group " + name + ", stabilised with subgroup names ")
+        #for i, subgroup in enumerate(current_read_groups):
+        #    print(subgroup[0])
             
         if sub_finished:
             continue
@@ -201,8 +202,9 @@ if __name__ == '__main__':
     """ alignment_comparison determines what portion of reads in each of a list 
         of bam files have an identical mapping (coordinate + cigar string) 
         present in a master bam file. 
-        NOTE: Requires that reads be sorted by read name aka the QNAME field-
-        use samtools sort -n on bams or regular sor on sams 
+        NOTE: Requires that reads be sorted by read name (aka the QNAME field)
+        and FLAG in alphanumeric order
+        use sort -n for this effect
         to get files sorted this way (MUST USE SAME SORT ON MASTER + ALL SUBS)
     """
 
