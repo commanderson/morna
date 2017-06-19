@@ -9,67 +9,47 @@ highest-scoring mapping (coordinate + cigar string) in the master file
 Note the concept of fractional mappings - if master file has 4 equally high scoring mappings, and 3 of these are present in a compared file, then .75 of an identical mapping is present for that read in that file.
 
 """
-import argparse
-import subprocess
-import sys
-from itertools import groupby
 
-_help_intro = \
-"""alignment_comparison determines what portion of reads in each of a list of bam files have an identical mapping (coordinate + cigar string) present in a
-master bam file. 
-NOTE:
-Requires that reads be sorted by read name aka the QNAME field-
-use samtools sort -n to get files sorted this way
-"""
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description=_help_intro)
-    
-    parser.add_argument('-m', '--master', metavar='<file>', type=str,
-            required=True,
-            help=('path to .bam alignment file which serves as master')
-        )
-    parser.add_argument('-s', '--subfiles', metavar='<m1>',
-            type=str, nargs='+',
-            required=False,
-            help='paths to .bam alignment files to evaluate'
-        )
-    parser.add_argument('-v', '--verbose', action='store_const',
-            const=True,
-            default=False,
-            help='be talkative'
-        )
+
+def go(master, subfiles, detailed_stats = True, verbose = False):
+    """ Runs the actual comparison; assumes that all subfiles and the masterfile 
+        have been sorted by read name and FLAG in the same order - that is,
+        if any subfile has e.g. reads 
+        ERR922713.160930574_HS3_322:7:2206:10273:60668  147
+        ERR922713.160930574_HS3_322:7:2206:10273:60668  99
+        in that order, then they must also be in that order in the master file
+        use the same sorting operation for both types of files!
         
-    args = parser.parse_args()
+    """
     
-    read_dict = {}
     process1 = subprocess.Popen(["samtools","view","-F","4",
-                                 args.master], stdout=subprocess.PIPE)
+                                 master], stdout=subprocess.PIPE)
     #some high-level variables needed before looping                             
     sub_iterators = []
     current_read_groups = []
     aligned_reads_in_master = 0
     
-    aligned_reads_in_subfiles = [0 for _ in args.subfiles]
-    precision_scores = [0.0 for _ in args.subfiles]
-    recall_scores = [0.0 for _ in args.subfiles]
+    aligned_reads_in_subfiles = [0 for _ in subfiles]
+    precision_scores = [0.0 for _ in subfiles]
+    recall_scores = [0.0 for _ in subfiles]
     sub_finished = False #flag to shortcut if all subalignments are finished
     
-    for file in args.subfiles:
+    for filename in subfiles:
         process_sub = subprocess.Popen(["samtools","view","-F","4",
-                                     file], stdout=subprocess.PIPE)
+                                     filename], stdout=subprocess.PIPE)
         sub_iterators.append(groupby(iter(process_sub.stdout.readline, ''),
                                 lambda x: x.split()[0] + "_" + x.split()[1]))
-        
+
     for iterator in sub_iterators:
         current_read_groups.append(next(iterator))
     
     
     #We must loop through every read name group in master file
     for name, group in groupby(iter(process1.stdout.readline, ''),
-                                lambda x: x.split()[0] + "_" + x.split()[1]):
+                                lambda x: "_".join(x.split()[:2])):
         aligned_reads_in_master += 1
-        if args.verbose:
+        if verbose:
             sys.stdout.write("Considering master read " + name + "\n")
         if sub_finished:
             continue
@@ -94,23 +74,23 @@ if __name__ == '__main__':
                     alignments_list.append((fields[0],fields[3],fields[5],))
                 #else do nothing
         
-            if args.verbose:
-                sys.stdout.write("----------------------mainalign-------"
-                                                            + "------------\n")
-                sys.stdout.write("Alignments in this group:\n")
-                for entry in alignments_list:
-                    sys.stdout.write(str(entry) + "\n")
-                sys.stdout.write("Max score: " + str(max_alignment_score) 
-                                                                    + "\n")
+            #if verbose:
+                #sys.stdout.write("----------------------mainalign-------"
+                #                                            + "------------\n")
+                #sys.stdout.write("Alignments in this group:\n")
+                #for entry in alignments_list:
+                #    sys.stdout.write(str(entry) + "\n")
+                #sys.stdout.write("Max score: " + str(max_alignment_score) 
+                #                                                    + "\n")
             #Then, we must find the max scored alignments for the subfile(s)
             #with matching read name
-            for i,file in enumerate(args.subfiles):
+            for i,file in enumerate(subfiles):
                 #if the current group from that file has the same read name
                 if current_subfile_names[i] == name:
                     aligned_reads_in_subfiles[i] += 1
                     #then we need to look at the alignments in that group
                     #to see how many from our list are matched
-                    #TODO: FIND HIGHEST SCORING LIST HERE TOO?
+
                     matching = 0.0
                     max_sub_alignment_score=-99999999999
                     sub_alignments_list = []
@@ -130,21 +110,24 @@ if __name__ == '__main__':
                         #else do nothing
                 
                 
-                    if args.verbose:
-                        sys.stdout.write("^^^^^^^^^^^^^subalign " 
-                                            + "^^^^^^^^^^^^^^^^^^^^^^^^^^^\n")
-                        
-                        sys.stdout.write("Alignments in this group:\n")
-                        for entry in alignments_list:
-                            sys.stdout.write(str(entry) + "\n")
-                        sys.stdout.write("Max score: " + 
-                                        str(max_alignment_score) + "\n")
+                 #   if verbose:
+                 #       sys.stdout.write("^^^^^^^^^^^^^subalign " 
+                 #                           + "^^^^^^^^^^^^^^^^^^^^^^^^^^^\n")
+                 #       
+                 #       sys.stdout.write("Alignments in this group:\n")
+                 #       for entry in alignments_list:
+                 #           sys.stdout.write(str(entry) + "\n")
+                 #       sys.stdout.write("Max score: " + 
+                 #                       str(max_alignment_score) + "\n")
                     
                     #Now, we take the size of the intersection of the master 
                     #file's list of highest-scoring alignments and 
                     #this sub alignment's list
                     for sub_alignment in sub_alignments_list:
                         if sub_alignment in alignments_list:
+                            if verbose:
+                                sys.stdout.write("In file " + file + ",\n")
+                                sys.stdout.write("Subfile alignment " + str(sub_alignment) + " matches master alignment.\n")
                             matching += 1.0
                     #precision is what proportion of the highest-scoring 
                     #alignments in the sub file are in the master file
@@ -167,14 +150,74 @@ if __name__ == '__main__':
                         if [(None,None) for pair 
                                 in current_read_groups] ==  current_read_groups:
                             sub_finished = True
-    for i,score in enumerate(precision_scores):
-        precision_scores[i] /= aligned_reads_in_subfiles[i]
-        recall_scores[i] /= aligned_reads_in_master
     
     sys.stdout.write("Of " + str(aligned_reads_in_master) + " aligned reads in " 
             + "the master file:\n")
+
+    #for i,score in enumerate(precision_scores):
+    #    precision_scores[i] /= aligned_reads_in_subfiles[i]
+    #    recall_scores[i] /= aligned_reads_in_master
+    
+
             
-    for i,file in enumerate(args.subfiles):
+    for i,file in enumerate(subfiles):
         sys.stdout.write("In file " + file + ":\n")
-        sys.stdout.write("Precision of " + str(precision_scores[i]) + "\n")
-        sys.stdout.write("Recall of " + str(recall_scores[i]) + "\n")
+        if detailed_stats:
+            sys.stdout.write("*" + str(aligned_reads_in_subfiles[i]) 
+                                                        + " aligned reads\n")
+            sys.stdout.write("*Precision score: " + str(precision_scores[i]) 
+                                                                        + "\n")
+        sys.stdout.write("Precision of: " 
+            + str(precision_scores[i] / aligned_reads_in_subfiles[i]) + "\n")
+            
+        if verbose:
+            sys.stdout.write("*Recall score: " + str(recall_scores[i]) + "\n")
+        sys.stdout.write("Recall of: " 
+                    + str(recall_scores[i] / aligned_reads_in_master) + "\n")
+
+if __name__ == '__main__':
+    import argparse
+    import subprocess
+    import sys
+    import time
+    from itertools import groupby
+
+    _help_intro = \
+    """ alignment_comparison determines what portion of reads in each of a list 
+        of bam files have an identical mapping (coordinate + cigar string) 
+        present in a master bam file. 
+        NOTE: Requires that reads be sorted by read name aka the QNAME field-
+        use samtools sort -n on bams or regular sor on sams 
+        to get files sorted this way (MUST USE SAME SORT ON MASTER + ALL SUBS)
+    """
+
+    parser = argparse.ArgumentParser(description=_help_intro)
+    
+    parser.add_argument('-m', '--master', metavar='<file>', type=str,
+            required=True,
+            help=('path to .bam alignment file which serves as master')
+        )
+    parser.add_argument('-s', '--subfiles', metavar='<m1>',
+            type=str, nargs='+',
+            required=False,
+            help='paths to .bam alignment files to evaluate'
+        )
+    parser.add_argument('-d', '--detailed-stats', action='store_const',
+            const=True,
+            default=False,
+            help='include more detailed output statistics'
+        )
+    parser.add_argument('-v', '--verbose', action='store_const',
+            const=True,
+            default=False,
+            help='be talkative'
+        )
+        
+    args = parser.parse_args()
+    
+    start_time = time.time()
+    go(master = args.master, subfiles = args.subfiles, 
+        detailed_stats = args.detailed_stats, verbose = args.verbose)
+    sys.stderr.write("DONE with alignment_comparison.py;\ntime=%0.3f s" 
+                                        % (time.time() - start_time)+ "\n")
+    
