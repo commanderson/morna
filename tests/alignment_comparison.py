@@ -50,12 +50,39 @@ def go(master, subfiles, detailed_stats = True, verbose = False):
     for name, group in groupby(iter(process1.stdout.readline, ''),
                                 lambda x: "_".join(x.split()[:2])):
         aligned_reads_in_master += 1
+                
         if verbose:
             sys.stdout.write("Considering master read " + name + "\n")
+    
+        #roll the current read group for each subfile forward 
+        #until it isn't behind the masterfile
+        for i, subgroup in enumerate(current_read_groups):
+            while ((current_read_groups[i][0] < name) 
+                    and current_read_groups[i][0] != None): 
+                print("in file " +str(i) + " subgroup name " 
+                + current_read_groups[i][0] + " sorts before " + name 
+                + " so continuing.")
+                try:
+                    current_read_groups[i] = next(sub_iterators[i])
+                except StopIteration:
+                    #If our iterators have reached their end, note this with
+                    #a tuple of None values
+                    current_read_groups[i] = (None,None)
+                    #If all iterators are finished, flag to shortcut 
+                    if [(None,None) for pair 
+                            in current_read_groups] ==  current_read_groups:
+                        sub_finished = True
+                aligned_reads_in_subfiles[i] += 1
+        
+        print("For master group " + name + ", stabilised with subgroup names ")
+        for i, subgroup in enumerate(current_read_groups):
+            print(subgroup[0])
+            
         if sub_finished:
             continue
-        #if the group is not present in any subfile we can skip it
+            
         current_subfile_names = [pair[0] for pair in current_read_groups]
+        #if the group is not present in any subfile we can skip it
         if name in current_subfile_names:
             #once we confirm that one or more subfile read names matches the 
             #current master file read name, we get to work finding the highest
@@ -138,20 +165,6 @@ def go(master, subfiles, detailed_stats = True, verbose = False):
                     #the master file are in the sub file
                     recall_scores[i] += matching / len(alignments_list)
                     
-                    #Lastly, the iterator for this subfile is moved 
-                    #to the next read group, since the master iterator 
-                    #has reached it.
-                    try:
-                        current_read_groups[i] = next(sub_iterators[i])
-                        aligned_reads_in_subfiles +=1
-                    except StopIteration:
-                        #If our iterators have reached their end, note this with
-                        #a tuple of None values
-                        current_read_groups[i] = (None,None)
-                        #If all iterators are finished, flag to shortcut 
-                        if [(None,None) for pair 
-                                in current_read_groups] ==  current_read_groups:
-                            sub_finished = True
     
     sys.stdout.write("Of " + str(aligned_reads_in_master) + " aligned reads in " 
             + "the master file:\n")
@@ -163,7 +176,7 @@ def go(master, subfiles, detailed_stats = True, verbose = False):
 
             
     for i,file in enumerate(subfiles):
-        sys.stdout.write("In file " + file + ":\n")
+        sys.stdout.write("In subfile " + file + ":\n")
         if detailed_stats:
             sys.stdout.write("*" + str(aligned_reads_in_subfiles[i]) 
                                                         + " aligned reads\n")
