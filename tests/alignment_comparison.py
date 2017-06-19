@@ -41,8 +41,9 @@ def go(master, subfiles, detailed_stats = True, verbose = False):
         sub_iterators.append(groupby(iter(process_sub.stdout.readline, ''),
                                 lambda x: x.split()[0] + "_" + x.split()[1]))
 
-    for iterator in sub_iterators:
+    for i,iterator in enumerate(sub_iterators):
         current_read_groups.append(next(iterator))
+        aligned_reads_in_subfiles[i] += 1
     
     
     #We must loop through every read name group in master file
@@ -87,7 +88,7 @@ def go(master, subfiles, detailed_stats = True, verbose = False):
             for i,file in enumerate(subfiles):
                 #if the current group from that file has the same read name
                 if current_subfile_names[i] == name:
-                    aligned_reads_in_subfiles[i] += 1
+                    #aligned_reads_in_subfiles[i] += 1
                     #then we need to look at the alignments in that group
                     #to see how many from our list are matched
 
@@ -142,6 +143,7 @@ def go(master, subfiles, detailed_stats = True, verbose = False):
                     #has reached it.
                     try:
                         current_read_groups[i] = next(sub_iterators[i])
+                        aligned_reads_in_subfiles +=1
                     except StopIteration:
                         #If our iterators have reached their end, note this with
                         #a tuple of None values
