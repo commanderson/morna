@@ -43,8 +43,13 @@ def go(master, subfiles, detailed_stats = True, verbose = False):
                                 lambda x: x.split()[0] + "_" + x.split()[1]))
 
     for i,iterator in enumerate(sub_iterators):
-        current_read_groups.append(next(iterator))
-        aligned_reads_in_subfiles[i] += 1
+        try:
+            current_read_groups.append(next(iterator))
+            aligned_reads_in_subfiles[i] += 1
+        except StopIteration:
+            sys.stdout.write("Can't read any aligned reads from " + subfiles[i]
+                                                + "\n Exiting...")
+            exit()
     
     
     #We must loop through every read name group in master file
@@ -65,6 +70,7 @@ def go(master, subfiles, detailed_stats = True, verbose = False):
                 #+ " so continuing.")
                 try:
                     current_read_groups[i] = next(sub_iterators[i])
+                    aligned_reads_in_subfiles[i] += 1
                 except StopIteration:
                     #If our iterators have reached their end, note this with
                     #a tuple of None values
@@ -73,7 +79,7 @@ def go(master, subfiles, detailed_stats = True, verbose = False):
                     if [(None,None) for pair 
                             in current_read_groups] ==  current_read_groups:
                         sub_finished = True
-                aligned_reads_in_subfiles[i] += 1
+                
         
         #print("For master group " + name + ", stabilised with subgroup names ")
         #for i, subgroup in enumerate(current_read_groups):
@@ -165,7 +171,27 @@ def go(master, subfiles, detailed_stats = True, verbose = False):
                     #recall is what proportion of highest-scoring alignments in 
                     #the master file are in the sub file
                     recall_scores[i] += matching / len(alignments_list)
-                    
+    
+    #unless we spun out all of our sub files' iterators already, we need to 
+    #finish them to get accurate count of aligned reads in subfiles  
+    if not sub_finished:
+        for i, subgroup in enumerate(current_read_groups):
+            while (current_read_groups[i][0] != None): 
+                #print("in file " +str(i) + " subgroup name " 
+                #+ current_read_groups[i][0] + " sorts before " + name 
+                #+ " so continuing.")
+                try:
+                    current_read_groups[i] = next(sub_iterators[i])
+                    aligned_reads_in_subfiles[i] += 1
+                except StopIteration:
+                    #If our iterators have reached their end, note this with
+                    #a tuple of None values
+                    current_read_groups[i] = (None,None)
+                    #If all iterators are finished, flag to shortcut 
+                    if [(None,None) for pair 
+                            in current_read_groups] ==  current_read_groups:
+                        sub_finished = True
+                
     
     sys.stdout.write("Of " + str(aligned_reads_in_master) + " aligned reads in " 
             + "the master file:\n")
@@ -190,6 +216,8 @@ def go(master, subfiles, detailed_stats = True, verbose = False):
             sys.stdout.write("*Recall score: " + str(recall_scores[i]) + "\n")
         sys.stdout.write("Recall of: " 
                     + str(recall_scores[i] / aligned_reads_in_master) + "\n")
+                    
+    
 
 if __name__ == '__main__':
     import argparse
@@ -229,9 +257,21 @@ if __name__ == '__main__':
             default=False,
             help='be talkative'
         )
+    parser.add_argument('-t', '--test', action='store_const',
+            const=True,
+            default=False,
+            help='run tests'
+        )
         
     args = parser.parse_args()
-    
+    if args.test:
+        #run tests here
+        #test for aligned_read counts : 
+        #for i in $(ls of test sams); 
+        #do samtools view -F 4 $i|grep -v "^@" |cut -f 1,2|uniq|wc -l; 
+        #done
+        print()
+        
     start_time = time.time()
     go(master = args.master, subfiles = args.subfiles, 
         detailed_stats = args.detailed_stats, verbose = args.verbose)
