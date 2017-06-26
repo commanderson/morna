@@ -91,7 +91,7 @@ def dot_prod(v1,v2):
     return sum([i*j for (i, j) in zip(v1, v2)])
     
 def cosine_distance(v1,v2):
-    """ Calculate dot product for 2 vectors
+    """ Calculate cosine distance for 2 vectors
     
         v1 and v2: vectors of matching length
     """
@@ -149,8 +149,13 @@ class MornaIndex(AnnoyIndex):
     def __init__(self, sample_count, basename, dim=3000, 
                  sample_threshold=100, metafile=None, buffer_size=1024):
         super(MornaIndex, self).__init__(dim, metric='angular')
-        # Store the total number of samples represented in the index
+        #Store the total number of samples represented in the input data
         self.sample_count = sample_count
+        # The number actually included in the index may differ (if every
+        # junction for a sample fails to meet the sample threshold, a sample
+        # would be excluded from the final index entirely)
+        # the final value of self.new_internal_id (+1) is the actual number 
+        # of samples included in the index
         #Store basename for index files
         self.basename = basename
         #Store the map between provided sample ids and internal ids,
@@ -167,8 +172,12 @@ class MornaIndex(AnnoyIndex):
         self.metafile = metafile
         # Dimension of low-dimensional feature feature vector
         self.dim = self.dimension_count = dim
+        
         # Minimum number of samples in which junction should be found
+        #before being included in the index
+        
         self.sample_threshold = sample_threshold
+        
         # list of junction ids per sample database connection;
         #Will remove old DB if it already exists!
         for shard_id in range(0,100):
@@ -177,6 +186,7 @@ class MornaIndex(AnnoyIndex):
                 + format(shard_id, '02d') + ".junc.mor")
             except OSError:
                 pass
+        
         self.buffer_size = buffer_size
         self.junction_conns={}
         self.cursors={}
@@ -186,6 +196,7 @@ class MornaIndex(AnnoyIndex):
         #self.junc_cursor.execute("BEGIN")
         self.junc_id = -1
         self.last_present_junction = defaultdict(lambda:-1)
+        self.last_unskipped_junction_id = -1
         self.jns_write_buffer = defaultdict(list)
         self.cov_write_buffer = defaultdict(list)                
     
@@ -205,7 +216,13 @@ class MornaIndex(AnnoyIndex):
         
         self.junc_id += 1
         
+        self.sample_frequencies[junction] += len(samples)
         
+        if len(samples) < self.sample_threshold:
+            return
+        else:
+            self.last_unskipped_junction_id = self.junc_id
+              
         for i,sample_id in enumerate(samples):
             try:
                 internal_id = self.internal_id_map[sample_id]
@@ -248,8 +265,9 @@ class MornaIndex(AnnoyIndex):
                 self.cov_write_buffer[internal_id].append(coverages[i])
                 
             else: #if there is already a table for this sample
-                #this will imply self.last_present_junction[internal_id] isn't -1
+                #this implies self.last_present_junction[internal_id] isn't -1
                 #first we check if we're on a run of 1s for this sample
+                #TODO: fix assumption that self.junc_id -1 is always previous one; it might be that we skipped last one due to threshold but are still on a run!
                 if self.last_present_junction[internal_id] == self.junc_id - 1:
                     #If so, we need to get the current run length
                     #If there's stuff in the buffer, we can check there
@@ -325,9 +343,8 @@ class MornaIndex(AnnoyIndex):
          #                   'Wrote junc_id {} into tables'
           #              ).format(self.junc_id)
         
-        if len(samples) < self.sample_threshold:
-            return
-        self.sample_frequencies[junction] += len(samples)
+        
+        
         #right now we hash on 'chromosome start stop'
         #maybe strand someday but shouldn't matter
         hashed_value = mmh3.hash(junction)
@@ -336,8 +353,10 @@ class MornaIndex(AnnoyIndex):
         idf_value = log(float(self.sample_count) 
                         / self.sample_frequencies[junction]
                         )
+
         for sample_id, coverage in zip(samples, coverages):
             internal_id = self.internal_id_map[sample_id]
+
             tf_idf_score = (coverage * idf_value)
             #previously used 1+ norm_log(int(coverage))
             self.sample_feature_matrix[
@@ -352,17 +371,21 @@ class MornaIndex(AnnoyIndex):
 
             No return value.
         """
+        #TODO: add handling for silly case when NO samples actually made it
         if verbose:
             for i, internal_id in enumerate(self.sample_feature_matrix):
                 self.add_item(internal_id, 
                         self.sample_feature_matrix[internal_id])
                 if not (i % 100):
-                    print >>sys.stderr, (
-                            'Added {} samples to Annoy index so far.'
-                        ).format(i+1)
+                    sys.stderr.write(
+                        'Added {} samples to Annoy index so far.\r'.format(i+1))
             print >>sys.stderr, (
-                    'Added a total of {} samples to Annoy index.'
+                    '\nAdded a total of {} samples to Annoy index.'
                 ).format(i+1)
+            print >>sys.stderr, (
+                    'Final new internal id value: {}'
+                ).format(self.new_internal_id)
+                    
         else:
             for internal_id in self.sample_feature_matrix:
                 self.add_item(internal_id, 
@@ -382,7 +405,7 @@ class MornaIndex(AnnoyIndex):
         """
         # Save Annoy index first
         super(MornaIndex, self).save(basename + '.annoy.mor')
-        # Write total number of samples
+        # Write total number of samples and dimensionality
         with open(basename + ".stats.mor", 'w') as stats_stream:
             print >>stats_stream, str(self.sample_count)
             print >>stats_stream, str(self.dim)
@@ -580,7 +603,7 @@ class MornaSearch(object):
             meta_db: bolean indicator - should an associated metadata db be 
             used to add metadata keywords to results?
             
-            Return value: a list of the sample ids of the neareast 
+            Return value: a list of the internal ids of the neareast 
             neighbors of the query, optionally joined in a tuple by 
             a corresponding list of distances and/or a list of metadata keywords 
             found in a supplied metadata db.
@@ -627,7 +650,7 @@ class MornaSearch(object):
             meta_db: bolean indicator - should an associated metadata db be 
             used to add metadata keywords to results?
             
-            Return value: a list of the sample ids of the neareast 
+            Return value: a list of the internal ids of the neareast 
             neighbors of the query, optionally joined in a tuple by 
             a corresponding list of distances and/or a list of metadata keywords 
             found in a supplied metadata db.
@@ -721,6 +744,93 @@ class MornaSearch(object):
         else:
             return results
 
+def count_samples(introp_file_handle,verbose):
+    """ Count distinct sample ids in samples-by-junction file 
+        at 'intropolis' file path
+        
+        introp_file_handle: file handle for tab delimited samples-by-junction 
+         (intropolis format) file.
+            tab-delimited columns:
+            1. chromosome where junction is located e.g. chr10
+            2. 1-based start position e.g. 101039923
+            3. 1-based end position e.g. 101040322
+            4. forward or reverse strand, one of '+' or '-'
+            5. donor dinucleotide (e.g., GT)
+            6. acceptor dinucleotide (e.g., AG)
+            7. comma-separated list of indexes of samples in which junction was 
+                found
+            8. comma-separated list of corresponding numbers of reads mapping 
+                across junction in samples from field 7
+        verbose: boolean True or False indicating whether progress updates 
+         should be written to stdout
+    """
+    samples = set()
+    if verbose:
+        for i, line in enumerate(introp_file_handle):
+            if i % 100 == 0:
+                sys.stdout.write(
+                    str(i) + " lines into sample count, " 
+                    + str(len(samples)) + " samples so far.\r"
+                )
+                sys.stdout.flush()
+            samples.update(line.split('\t')[-2].split(','))
+    else:
+        for i, line in enumerate(introp_file_handle):
+            samples.update(line.split('\t')[-2].split(','))
+    return len(samples)
+    
+def go_index(intropolis,basename,features,n_trees,sample_count,
+                sample_threshold,buffer_size,verbose,metafile):
+    """ Runs Morna index to create an index at 'basename' (all directories 
+        must already exist) based on the samples-by-junction file 
+        at 'intropolis'.
+    """
+    if not sample_count:
+        with gzip.open(intropolis) as introp_file_handle:
+            sample_count = count_samples(introp_file_handle,verbose)
+    if verbose:
+        print '\nThere are {} samples.'.format(sample_count)
+        
+    morna_index = MornaIndex(sample_count, basename, 
+                                dim=features,
+                                sample_threshold=sample_threshold, 
+                                metafile=metafile,
+                                buffer_size=buffer_size)
+    with gzip.open(intropolis) as introp_file_handle:
+        if verbose:
+            for i, line in enumerate(introp_file_handle):
+                if i % 1000 == 0:
+                    sys.stdout.write(str(i) 
+                            + " lines into index making\r")
+                    sys.stdout.flush()
+                tokens = line.strip().split('\t')
+                morna_index.add_junction(
+                        ' '.join(tokens[:3]),
+                        map(int, tokens[-2].split(',')), # samples
+                        map(int, tokens[-1].split(',')), # coverages
+                    )
+        else:
+            for line in introp_file_handle:
+                tokens = line.strip().split('\t')
+                morna_index.add_junction(
+                        ' '.join(tokens[:3]),
+                        map(int, tokens[-2].split(',')), # samples
+                        map(int, tokens[-1].split(',')) # coverages
+                    )
+    if verbose: 
+        print 'Finished making index; now building'
+    morna_index.build(n_trees, verbose=verbose)
+    morna_index.save(basename)
+
+def add_test_parameter(subparser):
+    """ Adds test parameter for running tests instead of executing
+    """ 
+    subparser.add_argument('--test', action='store_const',
+            const=True,
+            default=False,
+            help='run tests'
+        )
+
 def add_search_parameters(subparser):
     """ Adds command-line parameters associated with search subcommand
 
@@ -757,11 +867,18 @@ def add_search_parameters(subparser):
             default=False,
             help='display results mapped to metadata'
         )
-    subparser.add_argument('-c','--convergence-backoff', metavar='<int>', type=int,
+    subparser.add_argument('-c','--convergence-backoff', metavar='<int>', 
+            type=int,
             required=False,
             default=None,
             help=('attempt to converge on a solution with this backoff interval'
                   '(check after c, then 2c, then 4c, and stop when no change)')
+        )
+    subparser.add_argument('-ch','--checkpoint', metavar='<int>', type=int,
+            required=False,
+            default=0,
+            help=('Do not start backoff until this point (check at checkpoint,'
+                  ' then checkpoint + c, then continue exponential backoff')
         )
     subparser.add_argument('-q','--query-id', metavar='<int>', type=int,
             required=False,
@@ -795,6 +912,10 @@ if __name__ == '__main__':
     
     align_parser = subparsers.add_parser('align',
                                             help='performs alignment')
+    add_test_parameter(index_parser)
+    add_test_parameter(search_parser)
+    add_test_parameter(align_parser)
+    
     # Add command-line arguments
     index_parser.add_argument('--intropolis', metavar='<file>', type=str,
             required=True,
@@ -922,453 +1043,552 @@ if __name__ == '__main__':
              'of ranking of samples which provided junction'
         )
     args = parser.parse_args()
-    if args.subparser_name == 'index':
-        # Index
-        if not args.sample_count:
-            # Count number of samples
-            samples = set()
-            with gzip.open(args.intropolis) as introp_file_handle:
-                if args.verbose:
-                    for i, line in enumerate(introp_file_handle):
-                        if i % 100 == 0:
-                            sys.stdout.write(
-                                str(i) + " lines into sample count, " 
-                                + str(len(samples)) + " samples so far.\r"
-                            )
-                            sys.stdout.flush()
-                        samples.update(line.split('\t')[-2].split(','))
-                else:
-                    for i, line in enumerate(introp_file_handle):
-                        samples.update(line.split('\t')[-2].split(','))
-            args.sample_count = len(samples)
-        if args.verbose:
-            print '\nThere are {} samples.'.format(args.sample_count)
+    
+    
+    if args.test:
+        print("Tests are a work in progress")
+        if args.subparser_name == 'index':
+            del sys.argv[1:]
+            import unittest
+            import tempfile
+            import shutil
+
+            class IndexTestGo(unittest.TestCase):
+                """Index Tests go() """
+                
+                def setUp(self):
+                    # Set up temporary directory
+                    self.temp_dir_path = tempfile.mkdtemp()
+                    self.input_file = os.path.join(self.temp_dir_path,
+                                                               'junctions.temp')
+                    self.meta_file = os.path.join(self.temp_dir_path,
+                                                               'meta.temp')
+                    self.output_file = os.path.join(self.temp_dir_path,
+                                                                 'index.temp')
+                    self.generic_input_string = (
+                        'chr10\t100138610\t100139562\t-\tGC\tAG\t1\t1\n'
+                        'chr10\t100347256\t100362229\t-\tGC\tAG\t2\t3\n'
+                        'chr10\t100526502\t100529392\t-\tAT\tAC\t3\t1\n'
+                        'chr10\t100526535\t100527418\t+\tAT\tAC\t4\t1\n'
+                        'chr10\t100548141\t100548202\t+\tGC\tAG\t5\t1\n'
+                        'chr10\t100947776\t101440795\t-\tGC\tAG\t6\t1\n'
+                        'chr10\t100962117\t100963108\t+\tGC\tAG\t7\t1\n'
+                        'chr10\t100979320\t100982343\t+\tGC\tAG\t8\t1\n'
+                        'chr10\t101003908\t101007637\t-\tGC\tAG\t9\t1\n'
+                        'chr10\t101035534\t101036515\t-\tGT\tAG\t10\t1\n'
+                        'chr10\t101039923\t101040322'
+                        '\t-\tGC\tAG\t1,2,3,4\t1,1,1,1\n'
+                        'chr10\t101354229\t101407426\t-\tAT\tAC\t5\t1\n'
+                        'chr10\t101579666\t101583591\t-\tAT\tAC\t6\t1\n'
+                        'chr10\t101669187\t102046680\t+\tAT\tAC\t7,8\t1,1\n'
+                        'chr10\t101885932\t101918495\t-\tGC\tAG\t9\t1\n'
+                        'chr10\t102078553\t102078686\t-\tGC\tAG\t10\t1\n'
+                        'chr10\t102161920\t102162275\t+\tGC\tAG'
+                        '\t1,2,3,4,5,6,7,8,9,10\t2,1,1,2,2,1,2,3,8,2\n'
+                        'chr10\t102424521\t102425341\t-\tGC\tAG\t1\t1\n'
+                        'chr10\t102479334\t102813545\t+\tGT\tAG\t2\t1\n'
+                        'chr10\t102594066\t102615267\t+\tGT\tAG'
+                        '\t3,4,5,6,7,8,9,10\t1,4,1,1,1,7,1,1\n'
+                    )
+                    self.meta_string = (
+                        '0\tSample 0\tThe 0th sample\n'
+                        '1\tSample 1\tThe 1st sample\n'
+                        '2\tSample 2\tThe 2nd sample\n'
+                        '3\tSample 3\tThe 3rd sample\n'
+                        '4\tSample 4\tThe 4th sample\n'
+                        '5\tSample 5\tThe 5th sample\n'
+                        '6\tSample 6\tThe 6th sample\n'
+                        '7\tSample 7\tThe 7th sample\n'
+                        '8\tSample 8\tThe 8th sample\n'
+                        '9\tSample 9\tThe 9th sample\n'
+                    )
+                def test_sample_count(self):
+                    """ Fails if sample count is inaccurate
+                    """
+                    with open(self.input_file, 'w') as input_stream:
+                        input_stream.write(
+                            self.generic_input_string
+                        )
+                    with open(self.input_file) as input:
+                        sample_count = count_samples(input,False)
+                    self.assertEqual(sample_count, 10)
+                    
+                #def test_add_junction(self):
+                #    """ Fails if junction does not add correctly
+                #    """
+                
+                def test_full_runthrough(self):
+                    """ Test a runthrough on simple sample data with 
+                        all junctions included
+                    """
+                    with gzip.open(self.input_file, 'w') as input_stream:
+                        input_stream.write(
+                            self.generic_input_string
+                        )
+                    with open(self.meta_file, 'w') as meta_stream:
+                        meta_stream.write(
+                            self.meta_string
+                        )
+                    
+                    index_path = os.path.join(self.temp_dir_path ,"tempIndex")
+                    go_index(intropolis=self.input_file, basename=index_path,
+                        features=3000,n_trees=20,
+                        sample_count=10,sample_threshold=1,
+                        buffer_size=1024,verbose=False,
+                        metafile=self.meta_file)
+                    
+                    test_index=AnnoyIndex(3000)
+                    test_index.load(index_path+".annoy.mor")
+                    expected_results = (
+                        [[0, 2, 3, 1, 4, 5, 6, 7, 8, 9],
+                        [1, 2, 3, 0, 4, 5, 6, 7, 8, 9],
+                        [2, 3, 0, 1, 7, 6, 4, 5, 8, 9],
+                        [3, 7, 2, 0, 1, 6, 4, 5, 8, 9],
+                        [4, 7, 3, 2, 6, 5, 8, 9, 0, 1],
+                        [5, 7, 3, 2, 6, 4, 8, 9, 0, 1],
+                        [6, 7, 3, 2, 4, 5, 8, 9, 0, 1],
+                        [7, 6, 3, 2, 4, 5, 8, 9, 0, 1],
+                        [8, 7, 3, 2, 6, 4, 5, 9, 0, 1],
+                        [9, 7, 3, 2, 6, 4, 5, 8, 0, 1]]
+                    )
+
+                    for i in range(10):
+                        self.assertEqual(
+                            test_index.get_nns_by_item(i,10,search_k=100,
+                                include_distances=False),
+                            expected_results[i])
+                    
+                def tearDown(self):
+                    # Kill temporary directory
+                    shutil.rmtree(self.temp_dir_path)
+
+            unittest.main()
             
-        morna_index = MornaIndex(args.sample_count, args.basename, 
-                                    dim=args.features,
-                                    sample_threshold=args.sample_threshold, 
-                                    metafile=args.metafile,
-                                    buffer_size=args.buffer_size)
-        with gzip.open(args.intropolis) as introp_file_handle:
-            if args.verbose:
-                for i, line in enumerate(introp_file_handle):
-                    if i % 1000 == 0:
-                        sys.stdout.write(str(i) + " lines into index making\r")
-                        sys.stdout.flush()
-                    tokens = line.strip().split('\t')
-                    morna_index.add_junction(
-                            ' '.join(tokens[:3]),
-                            map(int, tokens[-2].split(',')), # samples
-                            map(int, tokens[-1].split(',')), # coverages
-                        )
-            else:
-                for line in introp_file_handle:
-                    tokens = line.strip().split('\t')
-                    morna_index.add_junction(
-                            ' '.join(tokens[:3]),
-                            map(int, tokens[-2].split(',')), # samples
-                            map(int, tokens[-1].split(',')) # coverages
-                        )
-        if args.verbose: 
-            print 'Finished making index; now building'
-        morna_index.build(args.n_trees, verbose=args.verbose)
-        morna_index.save(args.basename)
     else:
-        junction_stream = sys.stdin 
-        #this will be changed to the output sam file 
-        #from first pass alignment in the morna align case
+    
+        if args.subparser_name == 'index':
+            #index case
+            go_index(args.intropolis,args.basename,args.features,args.n_trees,
+                    args.sample_count,args.sample_threshold,args.buffer_size,
+                    args.verbose,args.metafile)
+        else:
+            #either align or search case
+            junction_stream = sys.stdin 
+            #this will be changed to the output sam file 
+            #from first pass alignment in the morna align case
         
-        if args.subparser_name == 'align':
-            if args.previous_alignment:
-                args.format = "sam"
-                junction_stream = open(args.pass1_sam)
-            else:
-                # Check command-line parameters
-                if args.unpaired is not None:
-                    if args.mates_1 is not None or args.mates_2 is not None:
+            if args.subparser_name == 'align':
+                if args.previous_alignment:
+                    args.format = "sam"
+                    junction_stream = open(args.pass1_sam)
+                else:
+                    # Check command-line parameters
+                    if args.unpaired is not None:
+                        if args.mates_1 is not None or args.mates_2 is not None:
+                            raise RuntimeError(
+                                    'Cannot align both paired & unpaired reads'
+                                    'at once.'
+                                )
+                    elif (args.mates_1 is not None and args.mates_2 is None 
+                            or args.mates_2 is not None 
+                                                and args.mates_1 is None):
                         raise RuntimeError(
-                                'Cannot align both paired and unpaired reads at '
-                                'once.'
+                                'If analyzing paired-end reads, must specify '
+                                'paths to both mates files.'
                             )
-                elif (args.mates_1 is not None and args.mates_2 is None 
-                        or args.mates_2 is not None and args.mates_1 is None):
-                    raise RuntimeError(
-                            'If analyzing paired-end reads, must specify paths '
-                            'to both mates files.'
-                        )
-                elif len(args.mates_1) != len(args.mates_2):
-                    raise RuntimeError(
-                            'The numbers of #1-mate and #2-mate files must be '
-                            'equal.'
-                        )
+                    elif len(args.mates_1) != len(args.mates_2):
+                        raise RuntimeError(
+                                'The numbers of #1-mate and #2-mate files must'
+                                'be equal.'
+                            )
                     
-                command = []
+                    command = []
                 
-                if args.aligner == "STAR":
-                    command.append("STAR")
-                    command += ["--genomeDir", args.index]
-                    command += ["--outFileNamePrefix", args.pass1_sam]
-                    command.append("--readFilesIn")
-                    if args.mates_1 is not None and args.mates_2 is not None:
-                        command += args.mates_1
-                        command += args.mates_2
-                    else:
-                        command += args.unpaired
+                    if args.aligner == "STAR":
+                        command.append("STAR")
+                        command += ["--genomeDir", args.index]
+                        command += ["--outFileNamePrefix", args.pass1_sam]
+                        command.append("--readFilesIn")
+                        if (args.mates_1 is not None 
+                                                and args.mates_2 is not None):
+                            command += args.mates_1
+                            command += args.mates_2
+                        else:
+                            command += args.unpaired
                     
                     
-                elif (args.aligner == "hisat2") or (args.aligner == "hisat"):
-                    command.append(args.aligner)
-                    command += ["-x", args.index]
-                    command += ["-S",args.pass1_sam]
-                    if args.mates_1 is not None and args.mates_2 is not None:
-                        command += ["-1", ",".join(args.mates_1)]
-                        command += ["-2", ",".join(args.mates_2)]
+                    elif (args.aligner == "hisat2") or (args.aligner 
+                                                            == "hisat"):
+                        command.append(args.aligner)
+                        command += ["-x", args.index]
+                        command += ["-S",args.pass1_sam]
+                        if (args.mates_1 is not None 
+                                                and args.mates_2 is not None):
+                            command += ["-1", ",".join(args.mates_1)]
+                            command += ["-2", ",".join(args.mates_2)]
+                        else:
+                            command += ["-U", ",".join(args.unpaired)]            
                     else:
-                        command += ["-U", ",".join(args.unpaired)]            
-                else:
-                    raise RuntimeError(
-                            'Currently supported aligner options are STAR and'
-                            'hisat2.'
-                        )
-                if args.aligner_args is not None:
-                    for arg in args.aligner_args.split(" "):
-                        command.append(arg)
-                if args.verbose:
-                    print("Calling: " 
-                            + " ".join(command))
-                ret = subprocess.check_call(command)
-                junction_stream = open(args.pass1_sam)
-                args.format = "sam"
+                        raise RuntimeError(
+                                'Currently supported aligner options are STAR,'
+                                'hisat, and hisat2.'
+                            )
+                    if args.aligner_args is not None:
+                        for arg in args.aligner_args.split(" "):
+                            command.append(arg)
+                    if args.verbose:
+                        print("Calling: " 
+                                + " ".join(command))
+                    ret = subprocess.check_call(command)
+                    junction_stream = open(args.pass1_sam)
+                    args.format = "sam"
             
 
             
-        searcher = MornaSearch(basename=args.basename)
-        # Search
-        # The search by query id case cuts out early
-        if args.query_id is not None:
-            results = searcher.search_member_n(args.query_id,
-                                    args.results, args.search_k,
-                                    include_distances=args.distances,
-                                     meta_db = args.metadata)
-            results_output(results)
-            quit()
-        # Read BED or BAM
-        if args.format == "sam":
-            junction_generator = junctions_from_sam_stream(junction_stream)
-        elif args.format == "bed":
-            junction_generator = junctions_from_bed_stream(junction_stream)
-        else:
-            assert args.format == "raw"
-            junction_generator = junctions_from_raw_stream(junction_stream)
-        if (args.convergence_backoff) and (args.format == 'sam'):
-            backoff = args.convergence_backoff
-            old_results = [-1 for _ in range(args.results)]
-            if args.verbose:
-                for i, junction in enumerate(junction_generator):
-                    if (i % 1000 == 0):
-                        sys.stderr.write( str(i) 
-                                         + " junctions into query sample\r")
-                        sys.stderr.flush()
-                    searcher.update_query(junction)
-                    if (i == backoff):
-                        backoff += backoff
-                        sys.stderr.write("\n")
-                        searcher.finalize_query()
-                        results = (searcher.search_nn(args.results, 
+            searcher = MornaSearch(basename=args.basename)
+            # Search
+            # The search by query id case cuts out early
+            if args.query_id is not None:
+                results = searcher.search_member_n(args.query_id,
+                                        args.results, args.search_k,
+                                        include_distances=args.distances,
+                                         meta_db = args.metadata)
+                results_output(results)
+                quit()
+            # Read BED or BAM
+            if args.format == "sam":
+                junction_generator = junctions_from_sam_stream(junction_stream)
+            elif args.format == "bed":
+                junction_generator = junctions_from_bed_stream(junction_stream)
+            else:
+                assert args.format == "raw"
+                junction_generator = junctions_from_raw_stream(junction_stream)
+            if (args.convergence_backoff) and (args.format == 'sam'):
+                backoff = args.convergence_backoff
+                checkpoint = args.checkpoint
+                old_results = [-1 for _ in range(args.results)]
+                if args.verbose:
+                    for i, junction in enumerate(junction_generator):
+                        if (i % 1000 == 0):
+                            sys.stderr.write( str(i) 
+                                             + " junctions into query sample\r")
+                            sys.stderr.flush()
+                        searcher.update_query(junction)
+                        if (i == checkpoint):
+                            checkpoint += (backoff)
+                            backoff += backoff
+                            sys.stderr.write("\n")
+                            searcher.finalize_query()
+                            results = (searcher.search_nn(args.results, 
+                                        args.search_k,
+                                        include_distances=args.distances,
+                                         meta_db = args.metadata))
+                            same = True
+                            for j,result in enumerate(results[0]):
+                                if not (result == old_results[j]):
+                                    same = False
+
+                            if same:
+                                sys.stderr.write("Converged after "+ str(i) 
+                                                    + " junctions.\n")
+                                results_output(results)
+                            
+                                quit()
+                            else:
+                                sys.stderr.write("Not converged after " + str(i) 
+                                                    + " junctions.\n")
+                                sys.stderr.write("Old results:\n" 
+                                    + str(old_results) + "\n")
+                                sys.stderr.write("New results:\n" 
+                                    + str(results[0]) + "\n")
+                                old_results = results[0]
+                    sys.stderr.write("No convergence after " + str(i) 
+                                            + " junctions, but here's results:\n")
+                    searcher.finalize_query()
+                    results = (searcher.search_nn(args.results, 
                                     args.search_k,
                                     include_distances=args.distances,
                                      meta_db = args.metadata))
-                        same = True
-                        for j,result in enumerate(results[0]):
-                            if not (result == old_results[j]):
-                                same = False
+                    results_output(results)
+                else:
+                    for i, junction in enumerate(junction_generator):
+                        searcher.update_query(junction)
+                        if (i == checkpoint):
+                            checkpoint += backoff
+                            backoff += backoff
+                            sys.stderr.write("\n")
+                            searcher.finalize_query()
+                            results = (searcher.search_nn(args.results, 
+                                        args.search_k,
+                                        include_distances=args.distances,
+                                         meta_db = args.metadata))
+                            same = True
+                            for j,result in enumerate(results[0]):
+                                if not (result == old_results[j]):
+                                    same = False
 
-                        if same:
-                            sys.stderr.write("Converged after "+ str(i) 
-                                                + " junctions.\n")
-                            results_output(results)
-                            
-                            quit()
-                        else:
-                            sys.stderr.write("Not converged after " + str(i) 
-                                                + " junctions.\n")
-                            sys.stderr.write("Old results:\n" + str(old_results)
-                                                             + "\n")
-                            sys.stderr.write("New results:\n" + str(results[0])
-                                                             + "\n")
-                            old_results = results[0]
-                sys.stderr.write("No convergence after, " + str(i) 
-                                        + " junctions, but here's results:\n")
-                searcher.finalize_query()
-                results = (searcher.search_nn(args.results, 
-                                args.search_k,
+                            if same:
+                                results_output(results)
+                                quit()
+                            else:
+                                old_results = results[0]
+                    results_output(results)
+            
+            else:
+                if args.verbose:
+                    for i, junction in enumerate(junction_generator):
+                        if (i % 1000 == 0):
+                            sys.stderr.write( str(i) 
+                                             + " junctions into query sample\r")
+                            sys.stderr.flush()
+                        searcher.update_query(junction)
+                    searcher.finalize_query()
+                else:
+                    for i, junction in enumerate(junction_generator):
+                        searcher.update_query(junction)
+                    searcher.finalize_query()
+                
+                if args.verbose:
+                    sys.stderr.write("\n")
+                if args.exact:
+                    results = searcher.exact_search_nn(args.results,
+                     include_distances=args.distances, meta_db = args.metadata)
+                else:
+                    results = (searcher.search_nn(args.results, args.search_k,
                                 include_distances=args.distances,
-                                 meta_db = args.metadata))
-                results_output(results)
-            else:
-                for i, junction in enumerate(junction_generator):
-                    searcher.update_query(junction)
-                    if (i == backoff):
-                        backoff += backoff
-                        sys.stderr.write("\n")
-                        searcher.finalize_query()
-                        results = (searcher.search_nn(args.results, 
-                                    args.search_k,
-                                    include_distances=args.distances,
-                                     meta_db = args.metadata))
-                        same = True
-                        for j,result in enumerate(results[0]):
-                            if not (result == old_results[j]):
-                                same = False
-
-                        if same:
-                            results_output(results)
-                            quit()
-                        else:
-                            old_results = results[0]
+                                meta_db = args.metadata))
                 results_output(results)
             
-        else:
-            if args.verbose:
-                for i, junction in enumerate(junction_generator):
-                    if (i % 1000 == 0):
-                        sys.stderr.write( str(i) 
-                                         + " junctions into query sample\r")
-                        sys.stderr.flush()
-                    searcher.update_query(junction)
-                searcher.finalize_query()
-            else:
-                for i, junction in enumerate(junction_generator):
-                    searcher.update_query(junction)
-                searcher.finalize_query()
+            if args.subparser_name == 'align':
+                filter = args.junction_filter.split(",")
+                frequency_filter = float(filter[0])
+                coverage_filter = int(filter[1])
+                max_junctions = -1
+                #print presence_filter
+                #print coverage_filter
+                result_sample_ids=[]
+                result_juncs = []
+                result_covrs = []
+    #            Two part junction filter settings separated by comma. 
+    #            Only retain junctions for alignment found in at least 
+    #            {first part} proportion of result samples, or 
+    #            junctions with at least {second part} coverage 
+    #            in any one result sample.
+                for result in results[0]:
+                    result_sample_ids.append(searcher.inverse_lookup(result))
+                    shard_id = mmh3.hash(str(result)) % 100
+                    print "shard_id is " + format(shard_id, '02d')
+                    database = (args.basename + ".sh" + format(shard_id, '02d') 
+                                                                + ".junc.mor")
+                    conn=sqlite3.connect(database)
+                    c=conn.cursor()
+                    #print("Connected to " + database)
+                    #The following makes this_one_juncs a list 
+                    #of !-separated lists of based64 encoded run lengths
+                    #and it makes this_one_covrs a list of ,-separated lists
+                    #of coverage integers
+                    this_one_juncs, this_one_covrs = zip(*list(c.execute(
+                            ("SELECT * FROM sample_%d") % result
+                        )))
                 
-            if args.verbose:
-                sys.stderr.write("\n")
-            if args.exact:
-                results = searcher.exact_search_nn(args.results,
-                 include_distances=args.distances, meta_db = args.metadata)
-            else:
-                results = (searcher.search_nn(args.results, args.search_k,
-                            include_distances=args.distances,
-                            meta_db = args.metadata))
-            results_output(results)
+                    #Then we join them, making this_one_juncs a string which is
+                    #a single !-separated list of based64 encoded run lengths
+                    #and this_one_covrs a string representing a ,-separated list
+                    #of coverage integers
+                    this_one_juncs="".join(this_one_juncs)
+                    this_one_covrs="".join(this_one_covrs)
+                    #then we split both on their separator and extract junction 
+                    #indexes from this_one_juncs, adding a list of integer 
+                    #junction indexes to result_juncs and a 
+                    #list of integer coverages to result_covrs
+                    result_juncs.append([j for j in
+                                     running_sum(this_one_juncs.split("!"))])
+                    result_covrs.append(this_one_covrs.strip(",").split(","))
+                    conn.close()
+                print "result_juncs lengths: "
+                print [len(ls) for ls in result_juncs]
+                print "result_covrs lengths: "
+                print [len(ls) for ls in result_covrs]
             
-        if args.subparser_name == 'align':
-            filter = args.junction_filter.split(",")
-            frequency_filter = float(filter[0])
-            coverage_filter = int(filter[1])
-            max_junctions = -1
-            #print presence_filter
-            #print coverage_filter
-            result_sample_ids=[]
-            result_juncs = []
-            result_covrs = []
-#            'Two part junction filter settings separated by comma. Only retain' 
-#            'junctions for alignment found in at least {first part} proportion'
-#            'of result samples, or junctions with at least {second part}'
-#            'coverage in any one result sample.'
-            for result in results[0]:
-                result_sample_ids.append(searcher.inverse_lookup(result))
-                shard_id = mmh3.hash(str(result)) % 100
-                print "shard_id is " + format(shard_id, '02d')
-                database = (args.basename + ".sh" + format(shard_id, '02d') 
-                                                            + ".junc.mor")
-                conn=sqlite3.connect(database)
-                c=conn.cursor()
-                #print("Connected to " + database)
-                #The following makes this_one_juncs a list 
-                #of !-separated lists of based64 encoded run lengths
-                #and it makes this_one_covrs a list of ,-separated lists
-                #of coverage integers
-                this_one_juncs, this_one_covrs = zip(*list(c.execute(
-                        ("SELECT * FROM sample_%d") % result
-                    )))
-                
-                #Then we join them, making this_one_juncs a string which is
-                #a single !-separated list of based64 encoded run lengths
-                #and this_one_covrs a string representing a ,-separated list
-                #of coverage integers
-                this_one_juncs="".join(this_one_juncs)
-                this_one_covrs="".join(this_one_covrs)
-                #then we split both on their separator and extract junction 
-                #indexes from this_one_juncs, adding a list of integer 
-                #junction indexes to result_juncs and a 
-                #list of integer coverages to result_covrs
-                result_juncs.append([j for j in
-                                 running_sum(this_one_juncs.split("!"))])
-                result_covrs.append(this_one_covrs.strip(",").split(","))
-                conn.close()
-            print "result_juncs lengths: "
-            print [len(ls) for ls in result_juncs]
-            print "result_covrs lengths: "
-            print [len(ls) for ls in result_covrs]
+                retain_junctions = set()
             
-            retain_junctions = set()
-            
-            frequency_counts = defaultdict(int)
-            if args.splicefile is not None:
-                found_in_map = defaultdict(list) # maps junction index to list
-                                                 # of results it was found in
+                frequency_counts = defaultdict(int)
+                if args.splicefile is not None:
+                    found_in_map = defaultdict(list) # maps junction index to list
+                                                     # of results it was found in
                                              
-                #we need results -> sample ids
-                #result_sample_ids[result_number] = result sample id
-                #this next gets the minimum number of samples with a junction
-                #to pass the frequency filter; we can stop doing anything
-                #for that junction once we have passed this threshold
-                min_count = int(ceil(frequency_filter * len(result_juncs)))
-                for i, junction_list in enumerate(result_juncs):
-                    for index in junction_list:
-                        frequency_counts[index]+=1
-                        found_in_map[index].append(i)
-                for i, junction_list in enumerate(result_juncs):
-                    for index in frequency_counts:
-                        if frequency_counts[index] >= min_count:
-                            retain_junctions.add(index)
-            else:
-                #this next gets the minimum number of samples with a junction
-                #to pass the frequency filter; we can stop doing anything
-                #for that junction once we have passed this threshold
-                min_count = int(ceil(frequency_filter * len(result_juncs)))
-                for i, junction_list in enumerate(result_juncs):
-                    for index in junction_list:
-                        if frequency_counts[index]<min_count:
+                    #we need results -> sample ids
+                    #result_sample_ids[result_number] = result sample id
+                    #this next gets the minimum number of samples with a junction
+                    #to pass the frequency filter; we can stop doing anything
+                    #for that junction once we have passed this threshold
+                    min_count = int(ceil(frequency_filter * len(result_juncs)))
+                    for i, junction_list in enumerate(result_juncs):
+                        for index in junction_list:
                             frequency_counts[index]+=1
-                        elif frequency_counts[index]==min_count:
-                            frequency_counts[index]+=1
-                            #print("Retaining junction " + str(index) 
-                            #        + " for passing frequency filter")
-                            retain_junctions.add(index)
-                            
-            for i, coverages_list in enumerate(result_covrs):
-                for j, coverage in enumerate(coverages_list):
-                    if int(coverage) >= coverage_filter:
-                        #Mark the jth (0 based) index from the list of junctions 
-                        #indexes present in this sample for retention since 
-                        #its corresponding coverage passes the filter.
-                        retain_junctions.add(result_juncs[i][j])
-                        #print("Retaining junction " + str(result_juncs[i][j]) 
-                        #        + " for passing coverage filter")
-            print("Number of retained junctions: " + str(len(retain_junctions)))
-            #~/Downloads/hisat2-2.0.5/hisat2 
-            #-x /Users/andechri/Downloads/alignment/hg38/genome 
-            #-S ${i}hisat_out.sam -1 ${i}62.filtered.fastq 
-            #-2 ${i}63.filtered.fastq 
-            #--novel-splice-infile ~/Downloads/splicesites.txt            
-            
-            if args.splicefile is not None:
-                with open(args.splicefile, "w") as splices,\
-                              gzip.open(args.junction_file) as junction_names:
-                    ordered_junctions = sorted(retain_junctions)
-                    sys.stderr.write(str(len(ordered_junctions)) 
-                                    + " junctions to begin with\n")
-                    junction_index = ordered_junctions.pop(0)
-                
-                    sys.stderr.flush()                
-                    for i, line in enumerate(junction_names):
-                        if i == junction_index:
-                            
-                            #result_sample_ids maps result index 
-                            #(0-19 for 20 results) to the sample ids 
-                            #those results correspond to
-                            #retain sample ids will be, crucially, 
-                            #in the same order as the indexes in
-                            # found_in_map[i], so they will correspond 
-                            #1:1 with the result numbers
-                            retain_sample_ids = []
-                            for result_index in found_in_map[i]:
-                                retain_sample_ids.append(result_sample_ids[
-                                                                result_index])
-           #chr1 438529 544346 - GC AG 2407,3250,5952,6791 2,1,2,3	[3]
-                            tokens = line.strip().split("\t")
-                            tokens[1] = str(int(tokens[1])-2)
-                            ####TODO: use just found in map to reconstruct!
-                            #new_samples = retain_sample_ids
-                            #new_coverages =old_covs[
-                            #        old_samples.index(sample_id)]
-                            ####
-                            old_samples = [int(x) for x in tokens[6].split(",")]
-                            old_covs = [int(x) for x in tokens[7].split(",")]
-                            new_samples = []
-                            new_covs = []
-                            for sample_id in retain_sample_ids:
-                                if sample_id in old_samples:
-                                    new_samples.append(sample_id)
-                                    new_covs.append(
-                                         old_covs[old_samples.index(sample_id)])
-                            tokens[6] = ",".join([str(_) for _ in new_samples])
-                            tokens[7] = ",".join([str(_) for _ in new_covs])
-
-                            splices.write("\t".join(tokens) + "\t" 
-                                    + str(found_in_map[i]) + "\n")
-                            try:
-                                junction_index = ordered_junctions.pop(0)
-                            except IndexError:
-                                #if the list of junction to match is empty, 
-                                #stop looping
-                                break 
-                            #sys.stderr.write(str(len(ordered_junctions)) 
-                            #        + " junctions remain\r")
-            else:
-                with open(args.pass1_sam + "_splicesites.txt", "w") as splices,\
-                              gzip.open(args.junction_file) as junction_names:
-                    ordered_junctions = sorted(retain_junctions)
-                    sys.stderr.write(str(len(ordered_junctions)) 
-                                    + " junctions to begin with\n")
-                    junction_index = ordered_junctions.pop(0)
-                
-                    sys.stderr.flush()                
-                    for i, line in enumerate(junction_names):
-                        if i == junction_index:
-                            tokens = line.strip().split("\t")[:4]
-                            tokens[1] = str(int(tokens[1])-2)
-                            splices.write("\t".join(tokens) + "\n")
-                            try:
-                                junction_index = ordered_junctions.pop(0)
-                            except IndexError:
-                                #if the list of junction to match is empty, 
-                                #stop looping
-                                break 
-                            #sys.stderr.write(str(len(ordered_junctions)) 
-                            #        + " junctions remain\r")
-                        
-                print ""
-            
-                command = []
-                
-                if args.aligner == "STAR":
-                    command.append("STAR")
-                    command += ["--genomeDir", args.index]
-                    command += ["--outFileNamePrefix", args.pass2_sam]
-                    command.append("--readFilesIn")
-                    if args.mates_1 is not None and args.mates_2 is not None:
-                        command += args.mates_1
-                        command += args.mates_2
-                    else:
-                        command += args.unpaired
-                    
-                    
-                elif (args.aligner == "hisat2") or (args.aligner == "hisat"):
-                    command.append(args.aligner)
-                    command += ["-x", args.index]
-                    command += ["-S",args.pass2_sam]
-                    if args.mates_1 is not None and args.mates_2 is not None:
-                        command += ["-1", ",".join(args.mates_1)]
-                        command += ["-2", ",".join(args.mates_2)]
-                    else:
-                        command += ["-U", ",".join(args.unpaired)]            
+                            found_in_map[index].append(i)
+                    for i, junction_list in enumerate(result_juncs):
+                        for index in frequency_counts:
+                            if frequency_counts[index] >= min_count:
+                                retain_junctions.add(index)
                 else:
-                    raise RuntimeError(
-                            'Currently supported aligner options are STAR and'
-                            'hisat2.'
-                        )
-                if args.aligner_args is not None:
-                    for arg in args.aligner_args.split(" "):
-                        command.append(arg)
+                    #this next gets the minimum number of samples 
+                    #with a given junction to pass the frequency filter;
+                    # we can stop doing anything for that junction 
+                    #once we have passed this threshold
+                    min_count = int(ceil(frequency_filter * len(result_juncs)))
+                    for i, junction_list in enumerate(result_juncs):
+                        for index in junction_list:
+                            if frequency_counts[index]<min_count:
+                                frequency_counts[index]+=1
+                            elif frequency_counts[index]==min_count:
+                                frequency_counts[index]+=1
+                                #print("Retaining junction " + str(index) 
+                                #        + " for passing frequency filter")
+                                retain_junctions.add(index)
+                            
+                for i, coverages_list in enumerate(result_covrs):
+                    for j, coverage in enumerate(coverages_list):
+                        if int(coverage) >= coverage_filter:
+                            #Mark the jth (0 based) index 
+                            #from the list of junctions 
+                            #indexes present in this sample for retention since 
+                            #its corresponding coverage passes the filter.
+                            retain_junctions.add(result_juncs[i][j])
+                            #print("Retaining junction " 
+                            #           + str(result_juncs[i][j]) 
+                            #        + " for passing coverage filter")
+                print("Number of retained junctions: " 
+                                            + str(len(retain_junctions)))
+                #~/Downloads/hisat2-2.0.5/hisat2 
+                #-x /Users/andechri/Downloads/alignment/hg38/genome 
+                #-S ${i}hisat_out.sam -1 ${i}62.filtered.fastq 
+                #-2 ${i}63.filtered.fastq 
+                #--novel-splice-infile ~/Downloads/splicesites.txt            
+            
+                if args.splicefile is not None:
+                    with open(args.splicefile, "w") as splices,\
+                                  gzip.open(
+                                  args.junction_file) as junction_names:
+                        ordered_junctions = sorted(retain_junctions)
+                        sys.stderr.write(str(len(ordered_junctions)) 
+                                        + " junctions to begin with\n")
+                        junction_index = ordered_junctions.pop(0)
+                
+                        sys.stderr.flush()                
+                        for i, line in enumerate(junction_names):
+                            if i == junction_index:
+                            
+                                #result_sample_ids maps result index 
+                                #(0-19 for 20 results) to the sample ids 
+                                #those results correspond to
+                                #retain sample ids will be, crucially, 
+                                #in the same order as the indexes in
+                                # found_in_map[i], so they will correspond 
+                                #1:1 with the result numbers
+                                retain_sample_ids = []
+                                for result_index in found_in_map[i]:
+                                    retain_sample_ids.append(result_sample_ids[
+                                                                  result_index])
+               #chr1 438529 544346 - GC AG 2407,3250,5952,6791 2,1,2,3	[3]
+                                tokens = line.strip().split("\t")
+                                tokens[1] = str(int(tokens[1])-2)
+                                ####TODO: use just found in map to reconstruct!
+                                #new_samples = retain_sample_ids
+                                #new_coverages =old_covs[
+                                #        old_samples.index(sample_id)]
+                                ####
+                                old_samples = [int(x) 
+                                                for x in tokens[6].split(",")]
+                                old_covs = [int(x) 
+                                                for x in tokens[7].split(",")]
+                                new_samples = []
+                                new_covs = []
+                                for sample_id in retain_sample_ids:
+                                    if sample_id in old_samples:
+                                        new_samples.append(sample_id)
+                                        new_covs.append(old_covs[
+                                                old_samples.index(sample_id)])
+                                tokens[6] = ",".join([str(_) 
+                                                        for _ in new_samples])
+                                tokens[7] = ",".join([str(_) for _ in new_covs])
 
-                command += ["--novel-splicesite-infile", args.pass1_sam 
+                                splices.write("\t".join(tokens) + "\t" 
+                                        + str(found_in_map[i]) + "\n")
+                                try:
+                                    junction_index = ordered_junctions.pop(0)
+                                except IndexError:
+                                    #if the list of junction to match is empty, 
+                                    #stop looping
+                                    break 
+                                #sys.stderr.write(str(len(ordered_junctions)) 
+                                #        + " junctions remain\r")
+                else:
+                    with open(args.pass1_sam 
+                            + "_splicesites.txt", "w") as splices,\
+                                  gzip.open(
+                                        args.junction_file) as junction_names:
+                        ordered_junctions = sorted(retain_junctions)
+                        sys.stderr.write(str(len(ordered_junctions)) 
+                                        + " junctions to begin with\n")
+                        junction_index = ordered_junctions.pop(0)
+                
+                        sys.stderr.flush()                
+                        for i, line in enumerate(junction_names):
+                            if i == junction_index:
+                                tokens = line.strip().split("\t")[:4]
+                                tokens[1] = str(int(tokens[1])-2)
+                                splices.write("\t".join(tokens) + "\n")
+                                try:
+                                    junction_index = ordered_junctions.pop(0)
+                                except IndexError:
+                                    #if the list of junction to match is empty, 
+                                    #stop looping
+                                    break 
+                                #sys.stderr.write(str(len(ordered_junctions)) 
+                                #        + " junctions remain\r")
+                        
+                    print ""
+            
+                    command = []
+                
+                    if args.aligner == "STAR":
+                        command.append("STAR")
+                        command += ["--genomeDir", args.index]
+                        command += ["--outFileNamePrefix", args.pass2_sam]
+                        command.append("--readFilesIn")
+                        if (args.mates_1 is not None 
+                                                and args.mates_2 is not None):
+                            command += args.mates_1
+                            command += args.mates_2
+                        else:
+                            command += args.unpaired
+                    
+                    
+                    elif (args.aligner == "hisat2") or (args.aligner 
+                                                                == "hisat"):
+                        command.append(args.aligner)
+                        command += ["-x", args.index]
+                        command += ["-S",args.pass2_sam]
+                        if (args.mates_1 is not None 
+                                                and args.mates_2 is not None):
+                            command += ["-1", ",".join(args.mates_1)]
+                            command += ["-2", ",".join(args.mates_2)]
+                        else:
+                            command += ["-U", ",".join(args.unpaired)]            
+                    else:
+                        raise RuntimeError(
+                                'Currently supported aligner options are '
+                                'STAR, hisat, and hisat2.'
+                            )
+                    if args.aligner_args is not None:
+                        for arg in args.aligner_args.split(" "):
+                            command.append(arg)
+
+                    command += ["--novel-splicesite-infile", args.pass1_sam 
                                                         + "_splicesites.txt"]
-                if args.verbose:
-                    print("Calling: " 
-                            + " ".join(command))
-                ret = subprocess.check_call(command)
-                junction_stream.close()
+                    if args.verbose:
+                        print("Calling: " 
+                                + " ".join(command))
+                    ret = subprocess.check_call(command)
+                    junction_stream.close()
