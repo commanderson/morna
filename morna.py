@@ -108,7 +108,7 @@ def results_output(results):
     for i in range(len(results[0])):
         sys.stdout.write(str(i+1) + ".")
         for list in results:
-             sys.stdout.write("\t" + str(list[i]))
+            sys.stdout.write("\t" + str(list[i]))
         sys.stdout.write("\n")
     
 def running_sum(rls):
@@ -162,6 +162,7 @@ class MornaIndex(AnnoyIndex):
         #which are an integer range from 0-number_of_samples-1
         self.internal_id_map = {}
         self.new_internal_id = 0
+        
         # Store numbers of samples in which each junction is found
         self.sample_frequencies = defaultdict(int)
         # Store low-dimensional representations of samples
@@ -175,8 +176,10 @@ class MornaIndex(AnnoyIndex):
         
         # Minimum number of samples in which junction should be found
         #before being included in the index
-        
         self.sample_threshold = sample_threshold
+        
+        #count the number of junctions left out due to sample threshold
+        self.skipped = 0
         
         # list of junction ids per sample database connection;
         #Will remove old DB if it already exists!
@@ -196,12 +199,134 @@ class MornaIndex(AnnoyIndex):
         #self.junc_cursor.execute("BEGIN")
         self.junc_id = -1
         self.last_present_junction = defaultdict(lambda:-1)
-        self.last_unskipped_junction_id = -1
         self.jns_write_buffer = defaultdict(list)
         self.cov_write_buffer = defaultdict(list)                
     
-    #@profile 
-    def add_junction(self, junction, samples, coverages):
+    #@profile
+    def update_junction_dbs(self,junction,samples,coverages):
+        """ Updates junction dbs with information from this junction 
+            as appropriate
+            
+            junction: string representation of junction
+                (typically chromosome, 1-based inclusive start position,
+                 1-based inclusive end position)
+            samples: list of integer indices of samples
+            coverages: list of integer coverages corresponding to samples
+
+            No return value.
+        """ 
+        
+        for i,sample_id in enumerate(samples):
+            try:
+                shard_id = mmh3.hash(str(sample_id)) % 100
+                
+                #junc_cursor = self.junction_conns[shard_id].cursor()
+                junc_cursor = self.cursors[shard_id]
+            except KeyError:
+                #Make the db
+                self.junction_conns[shard_id] = sqlite3.connect(self.basename 
+                                           + ".sh" + format(shard_id, '02d') 
+                                           + ".junc.mor")
+                self.junction_conns[shard_id].isolation_level = None
+                self.cursors[shard_id] = self.junction_conns[shard_id].cursor()
+                junc_cursor = self.cursors[shard_id]
+                junc_cursor.execute("BEGIN")
+        
+            if self.last_present_junction[sample_id] == -1: 
+                #if this is the first time we've seen this sample,
+                #we'll have to make a table for it.
+                junc_cursor.execute(("CREATE TABLE sample_%d "         
+                                        +"(junctions TEXT,"
+                                         +"coverages TEXT)") 
+                                            % sample_id)                
+                   
+                #All start with buffers now
+                brand_new_junctions = "!1"
+                if self.junc_id >0:
+                    brand_new_junctions = ("!" + encode_64(self.junc_id) 
+                                            + "!1")
+                
+                #self.junc_cursor.execute(sql, 
+                #            [brand_new_junctions,str(coverages[i])])
+                self.jns_write_buffer[sample_id].append(brand_new_junctions)
+                self.cov_write_buffer[sample_id].append(coverages[i])
+                
+            else: #if there is already a table for this sample
+                #this implies self.last_present_junction[sample_id] isn't -1
+                #first we check if we're on a run of 1s for this sample
+                #TODO: fix assumption that self.junc_id -1 is always previous one; it might be that we skipped last one due to threshold but are still on a run!
+                if self.last_present_junction[sample_id] == self.junc_id - 1:
+                    #If so, we need to get the current run length
+                    #If there's stuff in the buffer, we can check there
+                    if (self.jns_write_buffer[sample_id]):
+                        m = re.search("!([0-o]+)$",
+                                  self.jns_write_buffer[sample_id][-1])
+                        new_run_length = increment_64(m.group(1))
+                        new_terminus = ('!' + new_run_length)
+                        #and even update the run itself in buffer
+                        self.jns_write_buffer[sample_id][-1]=(new_terminus)
+                        self.cov_write_buffer[sample_id].append(coverages[i])
+                    #Otherwise, we actually have to update the run in db :/    
+                    #This is an edge case that rarely applies, 
+                    #but it's definitely the worst case performance-wise.
+                    else:
+                        current_junctions=""
+                        junc_cursor.execute(("SELECT ROWID FROM sample_%d"
+                                 + " ORDER BY ROWID DESC LIMIT 1") % sample_id)
+                        last_rowid = junc_cursor.fetchone()[0]
+                        junc_cursor.execute(
+                        ("SELECT junctions FROM sample_%d "
+                                + "ORDER BY ROWID DESC LIMIT 1") % sample_id)
+                        current_junctions = junc_cursor.fetchone()[0]
+                        m = re.search("(.*?)!([0-o]+)$", current_junctions)
+                        new_run_length = increment_64(m.group(2))
+                        new_junctions = (m.group(1) + '!' +
+                                         new_run_length)
+                        
+                        sql = (("UPDATE sample_%d SET junctions = ?," 
+                                + " coverages = coverages||?||','"
+                                + "WHERE ROWID = %d") 
+                                                    % (sample_id,last_rowid))
+                        junc_cursor.execute(sql,
+                            [new_junctions,coverages[i]])
+                    
+                #Otherwise, provided we're not on a run of 1s
+                else: 
+                    self.jns_write_buffer[sample_id].append(
+                            "!" + encode_64((self.junc_id 
+                                - self.last_present_junction[sample_id]) - 1))
+                    self.jns_write_buffer[sample_id].append("!1")
+                    self.cov_write_buffer[sample_id].append(coverages[i])
+                
+                #We will write buffer contents when buffer gets too big,
+                #and then empty the sample's buffer
+                if (sys.getsizeof(self.jns_write_buffer[sample_id]) 
+                                                > self.buffer_size):
+                    #print "let's write buffer for sample " + str(sample_id)
+                    
+                    sql = ((
+                    "INSERT INTO sample_%d VALUES (?, ?)")
+                    % sample_id)
+                    #TODO
+                    #NOT: format juncs buffer entries as always having an .X!X 
+                    #format, so each has a corresponding single cov entry? Right 
+                    #now we are content with variable length rows in db
+                    junc_cursor.execute(sql, 
+                            ["".join(self.jns_write_buffer[sample_id]),
+                            (",".join(str(c) for c in         
+                                    self.cov_write_buffer[sample_id]) + ",")
+                            ]
+                    
+                    )
+                    #self.junction_conn.commit()
+                    self.jns_write_buffer[sample_id] = []
+                    self.cov_write_buffer[sample_id] = []
+            #No matter what case we hit, each sample must update its 
+            #last_present_junction to the current.
+            self.last_present_junction[sample_id] = self.junc_id
+            
+            
+    def add_junction(self,junction,samples,coverages):
         """ Adds contributions of a single junction to feature vectors
             and also constructs junctions-by-sample database.
             
@@ -218,132 +343,11 @@ class MornaIndex(AnnoyIndex):
         
         self.sample_frequencies[junction] += len(samples)
         
+        self.update_junction_dbs(junction,samples,coverages)
+        
         if len(samples) < self.sample_threshold:
+            self.skipped += 1
             return
-        else:
-            self.last_unskipped_junction_id = self.junc_id
-              
-        for i,sample_id in enumerate(samples):
-            try:
-                internal_id = self.internal_id_map[sample_id]
-            except KeyError:
-                self.internal_id_map[sample_id] = self.new_internal_id
-                self.new_internal_id+=1
-                internal_id = self.internal_id_map[sample_id]
-            try:
-                shard_id = mmh3.hash(str(internal_id)) % 100
-                
-                #junc_cursor = self.junction_conns[shard_id].cursor()
-                junc_cursor = self.cursors[shard_id]
-            except KeyError:
-                #Make the db
-                self.junction_conns[shard_id] = sqlite3.connect(self.basename 
-                                           + ".sh" + format(shard_id, '02d') 
-                                           + ".junc.mor")
-                self.junction_conns[shard_id].isolation_level = None
-                self.cursors[shard_id] = self.junction_conns[shard_id].cursor()
-                junc_cursor = self.cursors[shard_id]
-                junc_cursor.execute("BEGIN")
-        
-            if self.last_present_junction[internal_id] == -1: 
-                #if this is the first time we've seen this sample,
-                #we'll have to make a table for it.
-                junc_cursor.execute(("CREATE TABLE sample_%d "         
-                                        +"(junctions TEXT,"
-                                         +"coverages TEXT)") 
-                                            % internal_id)                
-                   
-                #All start with buffers now
-                brand_new_junctions = "!1"
-                if self.junc_id >0:
-                    brand_new_junctions = ("!" + encode_64(self.junc_id) 
-                                            + "!1")
-                
-                #self.junc_cursor.execute(sql, 
-                #            [brand_new_junctions,str(coverages[i])])
-                self.jns_write_buffer[internal_id].append(brand_new_junctions)
-                self.cov_write_buffer[internal_id].append(coverages[i])
-                
-            else: #if there is already a table for this sample
-                #this implies self.last_present_junction[internal_id] isn't -1
-                #first we check if we're on a run of 1s for this sample
-                #TODO: fix assumption that self.junc_id -1 is always previous one; it might be that we skipped last one due to threshold but are still on a run!
-                if self.last_present_junction[internal_id] == self.junc_id - 1:
-                    #If so, we need to get the current run length
-                    #If there's stuff in the buffer, we can check there
-                    if (self.jns_write_buffer[internal_id]):
-                        m = re.search("!([0-o]+)$",
-                                  self.jns_write_buffer[internal_id][-1])
-                        new_run_length = increment_64(m.group(1))
-                        new_terminus = ('!' + new_run_length)
-                        #and even update the run itself in buffer
-                        self.jns_write_buffer[internal_id][-1]=(new_terminus)
-                        self.cov_write_buffer[internal_id].append(coverages[i])
-                    #Otherwise, we actually have to update the run in db :/    
-                    #This is an edge case that rarely applies, 
-                    #but it's definitely the worst case performance-wise.
-                    else:
-                        current_junctions=""
-                        junc_cursor.execute(("SELECT ROWID FROM sample_%d"
-                                 + " ORDER BY ROWID DESC LIMIT 1") % internal_id)
-                        last_rowid = junc_cursor.fetchone()[0]
-                        junc_cursor.execute(
-                        ("SELECT junctions FROM sample_%d "
-                                + "ORDER BY ROWID DESC LIMIT 1") % internal_id)
-                        current_junctions = junc_cursor.fetchone()[0]
-                        m = re.search("(.*?)!([0-o]+)$", current_junctions)
-                        new_run_length = increment_64(m.group(2))
-                        new_junctions = (m.group(1) + '!' +
-                                         new_run_length)
-                        
-                        sql = (("UPDATE sample_%d SET junctions = ?," 
-                                + " coverages = coverages||?||','"
-                                + "WHERE ROWID = %d") 
-                                                    % (internal_id,last_rowid))
-                        junc_cursor.execute(sql,
-                            [new_junctions,coverages[i]])
-                    
-                #Otherwise, provided we're not on a run of 1s
-                else: 
-                    self.jns_write_buffer[internal_id].append(
-                            "!" + encode_64((self.junc_id 
-                                - self.last_present_junction[internal_id]) - 1))
-                    self.jns_write_buffer[internal_id].append("!1")
-                    self.cov_write_buffer[internal_id].append(coverages[i])
-                
-                #We will write buffer contents when buffer gets too big,
-                #and then empty the sample's buffer
-                if (sys.getsizeof(self.jns_write_buffer[internal_id]) 
-                                                > self.buffer_size):
-                    #print "let's write buffer for sample " + str(internal_id)
-                    
-                    sql = ((
-                    "INSERT INTO sample_%d VALUES (?, ?)")
-                    % internal_id)
-                    #TODO: format juncs buffer entries as always having an .X!X 
-                    #format, so each has a corresponding single cov entry? Right 
-                    #now we are content with variable length rows in db
-                    junc_cursor.execute(sql, 
-                            ["".join(self.jns_write_buffer[internal_id]),
-                            (",".join(str(c) for c in         
-                                    self.cov_write_buffer[internal_id]) + ",")
-                            ]
-                    
-                    )
-                    #self.junction_conn.commit()
-                    self.jns_write_buffer[internal_id] = []
-                    self.cov_write_buffer[internal_id] = []
-            #No matter what case we hit, each sample must update its 
-            #last_present_junction to the current.
-            self.last_present_junction[internal_id] = self.junc_id
-        
-        #if (self.junc_id % 1000 == 0):
-        #    self.junction_conn.commit()
-        #    print >>sys.stderr, (
-         #                   'Wrote junc_id {} into tables'
-          #              ).format(self.junc_id)
-        
-        
         
         #right now we hash on 'chromosome start stop'
         #maybe strand someday but shouldn't matter
@@ -355,7 +359,12 @@ class MornaIndex(AnnoyIndex):
                         )
 
         for sample_id, coverage in zip(samples, coverages):
-            internal_id = self.internal_id_map[sample_id]
+            try:
+                internal_id = self.internal_id_map[sample_id]
+            except KeyError:
+                self.internal_id_map[sample_id] = self.new_internal_id
+                self.new_internal_id+=1
+                internal_id = self.internal_id_map[sample_id]
 
             tf_idf_score = (coverage * idf_value)
             #previously used 1+ norm_log(int(coverage))
@@ -372,6 +381,11 @@ class MornaIndex(AnnoyIndex):
             No return value.
         """
         #TODO: add handling for silly case when NO samples actually made it
+        if self.new_internal_id == 0:
+            raise ValueError("No internal ids were assigned, indicating that "
+                           + "no samples were added to the index. Likely "
+                           + "caused when no junctions pass the sample "
+                           + "threshold.")
         if verbose:
             for i, internal_id in enumerate(self.sample_feature_matrix):
                 self.add_item(internal_id, 
@@ -382,9 +396,12 @@ class MornaIndex(AnnoyIndex):
             print >>sys.stderr, (
                     '\nAdded a total of {} samples to Annoy index.'
                 ).format(i+1)
+            #print >>sys.stderr, (
+            #        'Final new internal id value: {}'
+            #    ).format(self.new_internal_id)
             print >>sys.stderr, (
-                    'Final new internal id value: {}'
-                ).format(self.new_internal_id)
+                    '{} junctions skipped for not meeting sample threshold'
+                ).format(self.skipped)
                     
         else:
             for internal_id in self.sample_feature_matrix:
@@ -405,10 +422,14 @@ class MornaIndex(AnnoyIndex):
         """
         # Save Annoy index first
         super(MornaIndex, self).save(basename + '.annoy.mor')
-        # Write total number of samples and dimensionality
+        # Write total number of samples in input, 
+        # total number of samples RETAINED, and dimensionality to
+        # the stats file so search can recover them
         with open(basename + ".stats.mor", 'w') as stats_stream:
             print >>stats_stream, str(self.sample_count)
+            print >>stats_stream, str(self.new_internal_id)
             print >>stats_stream, str(self.dim)
+
         # Pickle sample frequency dictionary
         with open(basename + ".freq.mor", 'w') as pickle_stream:
             cPickle.dump(self.sample_frequencies, pickle_stream,
@@ -423,14 +444,14 @@ class MornaIndex(AnnoyIndex):
         #We know all shards have been created now,
         # so getting shard cursor is easier
         
-        for internal_id in self.last_present_junction.keys():
+        for sample_id in self.last_present_junction.keys():
             ##First, add terminal 0s to each buffer (if needed)
             #if self.last_present_junction[internal_id]<self.junc_id:
             #    self.jns_write_buffer[internal_id].append('o'+str(self.junc_id
             #                    - self.last_present_junction[internal_id]))
                 #print("gonna add " + str(additional_junctions))
             
-            shard_id = mmh3.hash(str(internal_id)) % 100
+            shard_id = mmh3.hash(str(sample_id)) % 100
             junc_cursor = self.cursors[shard_id]
             
             #Write each buffer out, skipping only empty buffers
@@ -438,14 +459,14 @@ class MornaIndex(AnnoyIndex):
             #terminal 0s, must use different sql if there are no coverages to 
             #add, aka the only-terminal-0s case)
             
-            if (self.jns_write_buffer[internal_id]):
+            if (self.jns_write_buffer[sample_id]):
                 sql = ((
                     "INSERT INTO sample_%d VALUES (?, ?)")
-                    % internal_id)
+                    % sample_id)
                 junc_cursor.execute(sql, 
-                        ["".join(self.jns_write_buffer[internal_id]),
+                        ["".join(self.jns_write_buffer[sample_id]),
                         (",".join(str(c) for c in         
-                                self.cov_write_buffer[internal_id]) + ",")
+                                self.cov_write_buffer[sample_id]) + ",")
                         ]
                 )
                 
@@ -498,6 +519,7 @@ class MornaSearch(object):
         
         with open(basename + ".stats.mor") as stats_stream:
             self.sample_count = int(stats_stream.readline())
+            self.index_size = int(stats_stream.readline())
             self.dim = int(stats_stream.readline())
         
         self.query = defaultdict(int)
@@ -709,13 +731,15 @@ class MornaSearch(object):
             a corresponding list of distances and/or a list of metadata keywords 
             found in a supplied metadata db.
         """
+        print("querying by sample id " + str(query_id))
         try:
             internal_id = self.internal_id_map[query_id]
-        except key_error:
-            raise ValueError("Querying sample id " + str(sample_id) 
+        except KeyError:
+            raise ValueError("Querying sample id " + str(query_id) 
             + " is not possible because no internal id is mapped to that " 
             + "sample id. Likely no sample with that id was included " 
             + "in the index.")
+        print("this is internal id " + str(internal_id))
         if include_distances:
             results = self.annoy_index.get_nns_by_item(
                                                  internal_id, 
@@ -884,7 +908,7 @@ def add_search_parameters(subparser):
             required=False,
             default=None,
             help=('if provided, search is for nearest neighbors to the sample'
-                  'already in the index with this id')
+                  'already in the index with this sample id')
         )
     subparser.add_argument('-e', '--exact', action='store_const',
             const=True,
@@ -1249,6 +1273,7 @@ if __name__ == '__main__':
             # Search
             # The search by query id case cuts out early
             if args.query_id is not None:
+                #MAYBE BABY
                 results = searcher.search_member_n(args.query_id,
                                         args.results, args.search_k,
                                         include_distances=args.distances,
@@ -1375,8 +1400,10 @@ if __name__ == '__main__':
     #            junctions with at least {second part} coverage 
     #            in any one result sample.
                 for result in results[0]:
-                    result_sample_ids.append(searcher.inverse_lookup(result))
-                    shard_id = mmh3.hash(str(result)) % 100
+                    #the results are internal ids; we need sample ids
+                    sample_id = searcher.inverse_lookup(result)
+                    result_sample_ids.append(sample_id)
+                    shard_id = mmh3.hash(str(sample_id)) % 100
                     print "shard_id is " + format(shard_id, '02d')
                     database = (args.basename + ".sh" + format(shard_id, '02d') 
                                                                 + ".junc.mor")
@@ -1384,11 +1411,11 @@ if __name__ == '__main__':
                     c=conn.cursor()
                     #print("Connected to " + database)
                     #The following makes this_one_juncs a list 
-                    #of !-separated lists of based64 encoded run lengths
-                    #and it makes this_one_covrs a list of ,-separated lists
+                    #of '!'-separated lists of based64 encoded run lengths
+                    #and it makes this_one_covrs a list of ','-separated lists
                     #of coverage integers
                     this_one_juncs, this_one_covrs = zip(*list(c.execute(
-                            ("SELECT * FROM sample_%d") % result
+                            ("SELECT * FROM sample_%d") % sample_id
                         )))
                 
                     #Then we join them, making this_one_juncs a string which is

@@ -68,6 +68,12 @@ parser.add_argument('-x', '--exclude-introp', action='store_const',
             default=False,
             help='skip checking intropolis file (to quickly get db info)'
         )
+parser.add_argument('-pv', '--print-vectors', action='store_const',
+            const=True,
+            default=False,
+            help='print the entire vector of junction presence/absence '
+                 'and coverages (only recommended on short test data)'
+        )
 
 
 args = parser.parse_args()
@@ -78,7 +84,6 @@ introp_bv = BitVector(size = 0)
 introp_coverages = ""
 full_length = 0
 if not args.exclude_introp:
-    
     with gzip.open(args.intropolis) as introp_handle:
         for i,line in enumerate(introp_handle):
             if (i % 100 == 0):
@@ -100,36 +105,33 @@ if not args.exclude_introp:
                 introp_bv = introp_bv + BitVector(intVal = 0)
 
     introp_coverages = introp_coverages[:-1] #remove the trailing comma
-    print "Intropolis Junctions"
-    #print introp_bv           
+    print "Intropolis Junctions:"
+    if args.print_vectors:
+        print introp_bv           
     full_length = len(introp_bv)
     print "Length: " + str(full_length)
     print "Num. Present Junctions: " + str(sum(introp_bv))
-    #print "Coverages: " + introp_coverages
+    if args.print_vectors:
+        print "Coverages:\n" + introp_coverages
     print("Length of coverages (should agree): " 
             + str(len(introp_coverages.split(','))))
     if not (sum(introp_bv) == len(introp_coverages.split(','))):
         print("ERR: The number of present junctions and the length "
         + "of the coverages list don't match in INTROPOLOLIS-LIKE FILE!.")
 
-internal_id_map = {}
-with open(args.database + ".map.mor") as pickle_stream:
-                internal_id_map = cPickle.load(pickle_stream)
                 
 if not args.unsharded:# figure out which shard has our sample in sharded case
-    internal_id = internal_id_map[args.sample]
-    print("Sample id " + str(args.sample) + " is internal id " 
-                                    + str(internal_id))
-    shard_id = mmh3.hash(str(internal_id)) % 100
-    print "shard_id is " + str(shard_id)
-    args.database = args.database + ".sh" + str(shard_id) + ".junc.mor"
-
+    print("Sample id is " + str(args.sample))
+    shard_id = mmh3.hash(str(args.sample)) % 100
+    print "shard_id is " + format(shard_id, '02d')
+    args.database = args.database + ".sh" + format(shard_id, '02d') + ".junc.mor"
+    
 conn=sqlite3.connect(args.database)
 c=conn.cursor()
 print("Connected to " + args.database)
 db_rle_juncs=[]
 db_coverages=[]
-for line in c.execute(("SELECT * FROM sample_%d") % internal_id ):
+for line in c.execute(("SELECT * FROM sample_%d") % args.sample ):
     db_rle_juncs.append(line[0])
     db_coverages.append(line[1])
 
@@ -152,13 +154,15 @@ while len(shr_str)>0:
     i+=1
     
 print "DB Junctions"
-#print db_bv
+if args.print_vectors:
+    print db_bv
 db_length = len(db_bv)
 print "Pre-padding Length: " + str(len(db_bv))
 db_bv += BitVector(size = (full_length - db_length))
 print "Post-padding Length: " + str(len(db_bv))
 print "Num. Present Junctions: " + str(sum(db_bv))
-#print "Coverages: " + db_coverages
+if args.print_vectors:
+    print "Coverages: " + db_coverages
 db_coverages = db_coverages[:-1] #remove the trailing comma 
 
 print("Length of coverages (should agree): " 
