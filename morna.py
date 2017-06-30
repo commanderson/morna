@@ -1114,8 +1114,34 @@ if __name__ == '__main__':
                         'chr10\t102594066\t102615267\t+\tGT\tAG'
                         '\t3,4,5,6,7,8,9,10\t1,4,1,1,1,7,1,1\n'
                     )
+                    
+                    self.lossy_input_string = (
+                        'chr10\t100138610\t100139562\t-\tGC\tAG\t10\t1\n'
+                        'chr10\t100347256\t100362229\t-\tGC\tAG\t9\t3\n'
+                        'chr10\t100526502\t100529392\t-\tAT\tAC\t8\t1\n'
+                        'chr10\t100526535\t100527418\t+\tAT\tAC\t7\t1\n'
+                        'chr10\t100548141\t100548202\t+\tGC\tAG\t6\t1\n'
+                        'chr10\t100947776\t101440795\t-\tGC\tAG\t5\t1\n'
+                        'chr10\t100962117\t100963108\t+\tGC\tAG\t4\t1\n'
+                        'chr10\t100979320\t100982343\t+\tGC\tAG\t3\t1\n'
+                        'chr10\t101003908\t101007637\t-\tGC\tAG\t2\t1\n'
+                        'chr10\t101035534\t101036515\t-\tGT\tAG\t1\t1\n'
+                        'chr10\t101039923\t101040322\t-\tGC\tAG\t'
+                        '10,9,8,7\t1,1,1,1\n'
+                        'chr10\t101354229\t101407426\t-\tAT\tAC\t6\t1\n'
+                        'chr10\t101579666\t101583591\t-\tAT\tAC\t5\t1\n'
+                        'chr10\t101669187\t102046680\t+\tAT\tAC\t4,3\t1,1\n'
+                        'chr10\t101885932\t101918495\t-\tGC\tAG\t2\t1\n'
+                        'chr10\t102078553\t102078686\t-\tGC\tAG\t1\t1\n'
+                        'chr10\t102161920\t102162275\t+\tGC\tAG\t'
+                        '10,9,8,7,6,5,4\t2,1,1,2,2,1,2\n'
+                        'chr10\t102424521\t102425341\t-\tGC\tAG\t10\t1\n'
+                        'chr10\t102479334\t102813545\t+\tGT\tAG\t9\t1\n'
+                        'chr10\t102594066\t102615267\t+\tGT\tAG\t'
+                        '4,3,2,1\t1,7,1,1\n'
+                    )
                     self.meta_string = (
-                        '0\tSample 0\tThe 0th sample\n'
+                        '10\tSample 10\tThe 10th sample\n'
                         '1\tSample 1\tThe 1st sample\n'
                         '2\tSample 2\tThe 2nd sample\n'
                         '3\tSample 3\tThe 3rd sample\n'
@@ -1141,7 +1167,7 @@ if __name__ == '__main__':
                 #    """ Fails if junction does not add correctly
                 #    """
                 
-                def test_full_runthrough(self):
+                def test_simple_indexing(self):
                     """ Test a runthrough on simple sample data with 
                         all junctions included
                     """
@@ -1163,6 +1189,9 @@ if __name__ == '__main__':
                     
                     test_index=AnnoyIndex(3000)
                     test_index.load(index_path+".annoy.mor")
+                    
+                    self.assertEqual(test_index.get_n_items(), 10)
+                    
                     expected_results = (
                         [[0, 2, 3, 1, 4, 5, 6, 7, 8, 9],
                         [1, 2, 3, 0, 4, 5, 6, 7, 8, 9],
@@ -1175,6 +1204,137 @@ if __name__ == '__main__':
                         [8, 7, 3, 2, 6, 4, 5, 9, 0, 1],
                         [9, 7, 3, 2, 6, 4, 5, 8, 0, 1]]
                     )
+
+                    for i in range(10):
+                        self.assertEqual(
+                            test_index.get_nns_by_item(i,10,search_k=100,
+                                include_distances=False),
+                            expected_results[i])
+                
+                def test_metadata_indexing(self):
+                    """ Test a runthrough on simple sample data with 
+                        all junctions included for proper metadata mapping
+                    """
+                    with gzip.open(self.input_file, 'w') as input_stream:
+                        input_stream.write(
+                            self.generic_input_string
+                        )
+                    with open(self.meta_file, 'w') as meta_stream:
+                        meta_stream.write(
+                            self.meta_string
+                        )
+                    
+                    index_path = os.path.join(self.temp_dir_path ,"tempIndex")
+                    go_index(intropolis=self.input_file, basename=index_path,
+                        features=3000,n_trees=20,
+                        sample_count=10,sample_threshold=1,
+                        buffer_size=1024,verbose=False,
+                        metafile=self.meta_file)
+                    
+                    test_index=AnnoyIndex(3000)
+                    test_index.load(index_path+".annoy.mor")
+                    
+                    self.assertEqual(test_index.get_n_items(), 10)
+                    
+                    expected_results = (
+                        ([0, 2, 3, 1, 4, 5, 6, 7, 8, 9],
+                        [(u'Sample 1\tThe 1st sample\n',),
+                         (u'Sample 3\tThe 3rd sample\n',),
+                         (u'Sample 4\tThe 4th sample\n',),
+                         (u'Sample 2\tThe 2nd sample\n',), 
+                         (u'Sample 5\tThe 5th sample\n',), 
+                         (u'Sample 6\tThe 6th sample\n',), 
+                         (u'Sample 7\tThe 7th sample\n',), 
+                         (u'Sample 8\tThe 8th sample\n',), 
+                         (u'Sample 9\tThe 9th sample\n',), 
+                         (u'Sample 10\tThe 10th sample\n',)],)
+                    )
+                    
+                    searcher = MornaSearch(basename=index_path)
+                    
+                    results = searcher.search_member_n(1,
+                                        10, 100,
+                                        include_distances=False,
+                                         meta_db = True)
+                    self.assertEqual(results, expected_results)
+                    
+                def test_lossy_indexing(self):
+                    """ Test a runthrough on simple sample data with 
+                        many junctions excluded by sample threshold
+                    """
+                    with gzip.open(self.input_file, 'w') as input_stream:
+                        input_stream.write(
+                            self.lossy_input_string
+                        )
+                    with open(self.meta_file, 'w') as meta_stream:
+                        meta_stream.write(
+                            self.meta_string
+                        )
+                    
+                    index_path = os.path.join(self.temp_dir_path ,"tempIndex")
+                    go_index(intropolis=self.input_file, basename=index_path,
+                        features=3000,n_trees=20,
+                        sample_count=10,sample_threshold=4,
+                        buffer_size=1024,verbose=False,
+                        metafile=self.meta_file)
+                    
+                    test_index=AnnoyIndex(3000)
+                    test_index.load(index_path+".annoy.mor")
+                    
+                    self.assertEqual(test_index.get_n_items(), 10)
+                    
+                    expected_results = (
+                        [[0, 3, 1, 2, 4, 5, 6, 7, 8, 9],
+                        [1, 2, 0, 3, 4, 5, 6, 7, 8, 9],
+                        [1, 2, 0, 3, 4, 5, 6, 7, 8, 9],
+                        [0, 3, 1, 2, 4, 5, 6, 7, 8, 9],
+                        [4, 5, 0, 3, 6, 1, 2, 7, 8, 9],
+                        [4, 5, 0, 3, 6, 1, 2, 7, 8, 9],
+                        [6, 8, 9, 7, 4, 5, 0, 3, 1, 2],
+                        [7, 8, 9, 6, 0, 1, 2, 3, 4, 5],
+                        [8, 9, 7, 6, 0, 1, 2, 3, 4, 5],
+                        [8, 9, 7, 6, 0, 1, 2, 3, 4, 5]]
+                    )
+
+                def test_lose_sample_indexing(self):
+                    """ Test a runthrough on simple sample data with 
+                        enough junctions excluded by sample threshold
+                        that some samples are entirely lost
+                    """
+                    with gzip.open(self.input_file, 'w') as input_stream:
+                        input_stream.write(
+                            self.lossy_input_string
+                        )
+                    with open(self.meta_file, 'w') as meta_stream:
+                        meta_stream.write(
+                            self.meta_string
+                        )
+                    
+                    index_path = os.path.join(self.temp_dir_path ,"tempIndex")
+                    go_index(intropolis=self.input_file, basename=index_path,
+                        features=3000,n_trees=20,
+                        sample_count=10,sample_threshold=6,
+                        buffer_size=1024,verbose=False,
+                        metafile=self.meta_file)
+                    
+                    test_index=AnnoyIndex(3000)
+                    test_index.load(index_path+".annoy.mor")
+                    
+                    self.assertEqual(test_index.get_n_items(), 7)
+                    
+                    expected_results = (
+                        [[0, 1, 2, 3, 4, 5, 6],
+                        [0, 1, 2, 3, 4, 5, 6],
+                        [0, 1, 2, 3, 4, 5, 6],
+                        [0, 1, 2, 3, 4, 5, 6],
+                        [0, 1, 2, 3, 4, 5, 6],
+                        [0, 1, 2, 3, 4, 5, 6],
+                        [0, 1, 2, 3, 4, 5, 6],
+                        [0, 1, 2, 3, 4, 5, 6],
+                        [0, 1, 2, 3, 4, 5, 6],
+                        [0, 1, 2, 3, 4, 5, 6]]
+                    )
+
 
                     for i in range(10):
                         self.assertEqual(
