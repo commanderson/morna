@@ -6,6 +6,7 @@ Helper functions for morna; many are taken from Rail-RNA.
 """
 from argparse import HelpFormatter
 import sys
+import re
 
 def help_formatter(prog):
     """ So formatter_class's max_help_position can be changed. """
@@ -276,7 +277,7 @@ def junctions_from_sam_stream(sam_stream):
             if 'N' not in cigar or flag & 256:
                 continue
             #md = [token[5:] for token in tokens if token[:5] == 'MD:Z:'][0]
-            _, _, junctions_to_add, _ = indels_junctions_and_exons(
+            _, _, junctions_to_add, _, _ = indels_junctions_exons_mismatches(
                         cigar, dummy_md_index(cigar), pos, seq
                     )
             for junction in junctions_to_add:
