@@ -293,9 +293,9 @@ if __name__ == '__main__':
     
     #Otherwise, we're just executing comparison
     else:
-    start_time = time.time()
-    go(master = args.master, subfiles = args.subfiles, 
+        start_time = time.time()
+        go(master = args.master, subfiles = args.subfiles, 
         detailed_stats = args.detailed_stats, verbose = args.verbose)
-    sys.stderr.write("DONE with alignment_comparison.py;\ntime=%0.3f s" 
+        sys.stderr.write("DONE with alignment_comparison.py;\ntime=%0.3f s" 
                                         % (time.time() - start_time)+ "\n")
     
