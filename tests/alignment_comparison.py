@@ -12,7 +12,7 @@ Note the concept of fractional mappings - if master file has 4 equally high scor
 
 
 
-def go(master, subfiles, detailed_stats = True, verbose = False):
+def go(master, subfiles, detailed_stats=True, verbose=False):
     """ Runs the actual comparison; assumes that all subfiles and the masterfile 
         have been sorted by read name and FLAG in alphanueric order - that is,
         if any subfile has e.g. reads 
@@ -98,7 +98,18 @@ def go(master, subfiles, detailed_stats = True, verbose = False):
             alignments_list = []
             for alignment in group:
                 fields = alignment.split()
-                score = int(fields[11].strip("AS:i"))
+                try:
+                    score = int(
+                            [field for field in fields
+                                if field[:5] == 'AS:i:'][0][5:]
+                        )
+                except IndexError:
+                    raise IndexError(
+                        ('Could not find alignment score '
+                         'for SAM line {}.').format(
+                            alignment
+                        )
+                    )
                 #Is it a max scoring alignment?
                 #If it's the new max, make a new list with just it
                 if score > max_alignment_score:
@@ -264,14 +275,24 @@ if __name__ == '__main__':
         )
         
     args = parser.parse_args()
+    
+    #If we are running tests:
     if args.test:
-        #run tests here
+        #TODO: formal test cases
+        #Test cases use
+        #tests/test_master.sam as masterfile
+        #tests/test_p100r25.sam for 100 precision 25 mastery
+        #tests/test_sub_imprecise.sam for low precision
+        #tests/test_sub_m5_missing_lowscore.sam for sameness
+        #permutations of order for unchangeingness
         #test for aligned_read counts : 
         #for i in $(ls of test sams); 
         #do samtools view -F 4 $i|grep -v "^@" |cut -f 1,2|uniq|wc -l; 
         #done
-        print()
-        
+        print("")
+    
+    #Otherwise, we're just executing comparison
+    else:
     start_time = time.time()
     go(master = args.master, subfiles = args.subfiles, 
         detailed_stats = args.detailed_stats, verbose = args.verbose)
