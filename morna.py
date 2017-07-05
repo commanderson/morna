@@ -587,6 +587,8 @@ class MornaSearch(object):
             
             No return value.
         """
+        #TODO: check if junction is in dictionary of junctions in sample
+        #if it isn't, don't include
         self.query[tuple(junction[:3])] += int(junction[3])
                 
     def finalize_query(self):
@@ -1458,7 +1460,9 @@ if __name__ == '__main__':
                             sys.stderr.write( str(i) 
                                              + " junctions into query sample\r")
                             sys.stderr.flush()
-                        searcher.update_query(junction)
+                        if (" ".join(junction[:3]) in 
+                                searcher.sample_frequencies):
+                            searcher.update_query(junction)
                         if (i == checkpoint):
                             checkpoint += (backoff)
                             backoff += backoff
@@ -1497,7 +1501,11 @@ if __name__ == '__main__':
                     results_output(results)
                 else:
                     for i, junction in enumerate(junction_generator):
-                        searcher.update_query(junction)
+                        #TODO: propagate this to see that we get dead on results
+                        #with annoy
+                        if (" ".join(junction[:3]) in 
+                                searcher.sample_frequencies):
+                            searcher.update_query(junction)
                         if (i == checkpoint):
                             checkpoint += backoff
                             backoff += backoff
@@ -1526,11 +1534,15 @@ if __name__ == '__main__':
                             sys.stderr.write( str(i) 
                                              + " junctions into query sample\r")
                             sys.stderr.flush()
-                        searcher.update_query(junction)
+                        if (" ".join(junction[:3]) in 
+                                searcher.sample_frequencies):
+                            searcher.update_query(junction)
                     searcher.finalize_query()
                 else:
                     for i, junction in enumerate(junction_generator):
-                        searcher.update_query(junction)
+                        if (" ".join(junction[:3]) in 
+                                searcher.sample_frequencies):
+                            searcher.update_query(junction)
                     searcher.finalize_query()
                 
                 if args.verbose:
