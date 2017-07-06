@@ -1535,9 +1535,6 @@ if __name__ == '__main__':
                         if (" ".join(junction[:3]) in 
                                 searcher.sample_frequencies):
                             searcher.update_query(junction)
-                            sys.stderr.write("\njunction " 
-                                + " ".join(junction[:3]) 
-                                + "is in index; added to query\n")
                         else:
                             sys.stderr.write("\njunction " 
                                 + " ".join(junction[:3]) 
