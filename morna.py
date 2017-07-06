@@ -1501,8 +1501,6 @@ if __name__ == '__main__':
                     results_output(results)
                 else:
                     for i, junction in enumerate(junction_generator):
-                        #TODO: propagate this to see that we get dead on results
-                        #with annoy
                         if (" ".join(junction[:3]) in 
                                 searcher.sample_frequencies):
                             searcher.update_query(junction)
@@ -1537,6 +1535,10 @@ if __name__ == '__main__':
                         if (" ".join(junction[:3]) in 
                                 searcher.sample_frequencies):
                             searcher.update_query(junction)
+                        else:
+                            sys.stderr.write("junction " 
+                                + " ".join(junction[:3]) 
+                                + "not in index; not added to query")
                     searcher.finalize_query()
                 else:
                     for i, junction in enumerate(junction_generator):
