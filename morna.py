@@ -1461,7 +1461,7 @@ if __name__ == '__main__':
                             sys.stderr.write( str(i) 
                                              + " junctions into query sample\r")
                             sys.stderr.flush()
-                        if (string_junction) in 
+                        if (string_junction in 
                                 searcher.sample_frequencies):
                             searcher.update_query(junction)
                         if (i == checkpoint):
@@ -1502,7 +1502,7 @@ if __name__ == '__main__':
                     results_output(results)
                 else:
                     for i, junction in enumerate(junction_generator):
-                        if (string_junction) in 
+                        if (string_junction in 
                                 searcher.sample_frequencies):
                             searcher.update_query(junction)
                         if (i == checkpoint):
@@ -1533,13 +1533,13 @@ if __name__ == '__main__':
                             sys.stderr.write( str(i) 
                                              + " junctions into query sample\r")
                             sys.stderr.flush()
-                        if (string_junction) in 
+                        if (string_junction in 
                                 searcher.sample_frequencies):
                             searcher.update_query(junction)
                     searcher.finalize_query()
                 else:
                     for i, junction in enumerate(junction_generator):
-                        if (string_junction) in 
+                        if (string_junction in 
                                 searcher.sample_frequencies):
                             searcher.update_query(junction)
                     searcher.finalize_query()
