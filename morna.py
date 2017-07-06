@@ -682,7 +682,7 @@ class MornaSearch(object):
         neighbor_indexes=[]
         neighbor_distances=[]
 
-        for i in range(0,self.sample_count):
+        for i in range(0,self.index_size):
             current_distance = cosine_distance(
                 self.annoy_index.get_item_vector(i),
                 self.query_sample)
