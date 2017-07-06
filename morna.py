@@ -341,13 +341,13 @@ class MornaIndex(AnnoyIndex):
         
         self.junc_id += 1
         
-        self.sample_frequencies[junction] += len(samples)
-        
         self.update_junction_dbs(junction,samples,coverages)
         
         if len(samples) < self.sample_threshold:
             self.skipped += 1
             return
+        
+        self.sample_frequencies[junction] += len(samples)
         
         #right now we hash on 'chromosome start stop'
         #maybe strand someday but shouldn't matter
@@ -567,7 +567,7 @@ class MornaSearch(object):
         """
         hashable_junction = ' '.join(map(str, junction[:3]))
         
-        if (self.sample_frequencies[hashable_junction] == 0.0):
+        if (self.sample_frequencies[hashable_junction] == 0):
             idf_value = 0
         else:
             idf_value = log(float(self.sample_count)
@@ -601,7 +601,7 @@ class MornaSearch(object):
         self.query_sample = [0.0 for _ in xrange(self.dim)]
         for junction in self.query.keys():
             hashable_junction = ' '.join(str(_) for _ in junction)        
-            if (self.sample_frequencies[hashable_junction] == 0.0):
+            if (self.sample_frequencies[hashable_junction] == 0):
                 idf_value = 0
             else:
                 idf_value = log(float(self.sample_count)
