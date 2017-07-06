@@ -1535,10 +1535,6 @@ if __name__ == '__main__':
                         if (" ".join(junction[:3]) in 
                                 searcher.sample_frequencies):
                             searcher.update_query(junction)
-                        else:
-                            sys.stderr.write("\njunction " 
-                                + " ".join(junction[:3]) 
-                                + "not in index; not added to query\n")
                     searcher.finalize_query()
                 else:
                     for i, junction in enumerate(junction_generator):
