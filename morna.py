@@ -1456,11 +1456,12 @@ if __name__ == '__main__':
                 old_results = [-1 for _ in range(args.results)]
                 if args.verbose:
                     for i, junction in enumerate(junction_generator):
+                        string_junction = " ".join(str(_) for _ in junction[:3])
                         if (i % 1000 == 0):
                             sys.stderr.write( str(i) 
                                              + " junctions into query sample\r")
                             sys.stderr.flush()
-                        if (" ".join(junction[:3]) in 
+                        if (string_junction) in 
                                 searcher.sample_frequencies):
                             searcher.update_query(junction)
                         if (i == checkpoint):
@@ -1501,7 +1502,7 @@ if __name__ == '__main__':
                     results_output(results)
                 else:
                     for i, junction in enumerate(junction_generator):
-                        if (" ".join(junction[:3]) in 
+                        if (string_junction) in 
                                 searcher.sample_frequencies):
                             searcher.update_query(junction)
                         if (i == checkpoint):
@@ -1532,13 +1533,13 @@ if __name__ == '__main__':
                             sys.stderr.write( str(i) 
                                              + " junctions into query sample\r")
                             sys.stderr.flush()
-                        if (" ".join(junction[:3]) in 
+                        if (string_junction) in 
                                 searcher.sample_frequencies):
                             searcher.update_query(junction)
                     searcher.finalize_query()
                 else:
                     for i, junction in enumerate(junction_generator):
-                        if (" ".join(junction[:3]) in 
+                        if (string_junction) in 
                                 searcher.sample_frequencies):
                             searcher.update_query(junction)
                     searcher.finalize_query()
