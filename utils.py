@@ -201,7 +201,7 @@ def junctions_from_raw_stream(raw_stream):
     """
     for line in raw_stream:
         tokens = line.strip().split('\t')
-        yield (tokens[0], tokens[1], tokens[2], int(tokens[3]))
+        yield (tokens[0], int(tokens[1]), int(tokens[2]), int(tokens[3]))
 
 def junctions_from_bed_stream(bed_stream):
     """ Generates junctions from BED stream
