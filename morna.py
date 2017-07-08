@@ -697,10 +697,10 @@ class MornaSearch(object):
         neighbor_distances=[]
 
         for i in range(0,self.index_size):
-            #current_distance = cosine_distance(
-            #    self.annoy_index.get_item_vector(i),
-            #    self.query_sample)
-            current_distance = annoy_index
+            current_distance = cosine_distance(
+                self.annoy_index.get_item_vector(i),
+                self.query_sample)
+
             insert_point = bisect.bisect_left(neighbor_distances,
                                           current_distance)
             if insert_point < num_neighbors:
