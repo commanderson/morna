@@ -90,13 +90,27 @@ def dot_prod(v1,v2):
     """
     return sum([i*j for (i, j) in zip(v1, v2)])
     
-def cosine_distance(v1,v2):
+def old_cosine_distance(v1,v2):
     """ Calculate cosine distance for 2 vectors
     
         v1 and v2: vectors of matching length
     """
     cosine_similarity = dot_prod(v1, v2)/ (magnitude(v1) * magnitude(v2))
     return 1-cosine_similarity
+
+def cosine_distance(v1,v2):
+    pp = 0.0
+    qq = 0.0
+    pq = 0.0
+    for (i, j) in zip(v1, v2):
+        pp += i * i
+        qq += j * j
+        pq += i * j
+    ppqq= pp * qq
+    if (ppqq > 0.0):
+        return 2.0 - 2.0 * pq / sqrt(ppqq)
+    else:
+        return 2.0
 
 def results_output(results):
     """ output morna search results in human-readable fashion
@@ -525,7 +539,7 @@ class MornaSearch(object):
         self.query = defaultdict(int)
         self.query_sample = [0.0 for _ in xrange(self.dim)]
         
-        self.annoy_index = AnnoyIndex(self.dim)
+        self.annoy_index = AnnoyIndex(self.dim,metric="angular")
         self.annoy_index.load(basename + '.annoy.mor')
         
         with open(basename + ".freq.mor") as pickle_stream:
@@ -683,9 +697,10 @@ class MornaSearch(object):
         neighbor_distances=[]
 
         for i in range(0,self.index_size):
-            current_distance = cosine_distance(
-                self.annoy_index.get_item_vector(i),
-                self.query_sample)
+            #current_distance = cosine_distance(
+            #    self.annoy_index.get_item_vector(i),
+            #    self.query_sample)
+            current_distance = annoy_index
             insert_point = bisect.bisect_left(neighbor_distances,
                                           current_distance)
             if insert_point < num_neighbors:
@@ -923,7 +938,11 @@ def add_search_parameters(subparser):
             default=20,
             help=('the number of nearest neighbor results to return')
         )
-
+    subparser.add_argument('-rl', '--rawlist', action='store_const',
+            const=True,
+            default=False,
+            help='spit out string junction list instead of performing search'
+        )
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=_help_intro, 
                 formatter_class=help_formatter)
@@ -1184,12 +1203,12 @@ if __name__ == '__main__':
                     
                     index_path = os.path.join(self.temp_dir_path ,"tempIndex")
                     go_index(intropolis=self.input_file, basename=index_path,
-                        features=3000,n_trees=20,
+                        features=40,n_trees=20,
                         sample_count=10,sample_threshold=1,
                         buffer_size=1024,verbose=False,
                         metafile=self.meta_file)
                     
-                    test_index=AnnoyIndex(3000)
+                    test_index=AnnoyIndex(3000, metric="angular")
                     test_index.load(index_path+".annoy.mor")
                     
                     self.assertEqual(test_index.get_n_items(), 10)
@@ -1228,12 +1247,12 @@ if __name__ == '__main__':
                     
                     index_path = os.path.join(self.temp_dir_path ,"tempIndex")
                     go_index(intropolis=self.input_file, basename=index_path,
-                        features=3000,n_trees=20,
+                        features=40,n_trees=20,
                         sample_count=10,sample_threshold=1,
                         buffer_size=1024,verbose=False,
                         metafile=self.meta_file)
                     
-                    test_index=AnnoyIndex(3000)
+                    test_index=AnnoyIndex(3000, metric="angular")
                     test_index.load(index_path+".annoy.mor")
                     
                     self.assertEqual(test_index.get_n_items(), 10)
@@ -1275,12 +1294,12 @@ if __name__ == '__main__':
                     
                     index_path = os.path.join(self.temp_dir_path ,"tempIndex")
                     go_index(intropolis=self.input_file, basename=index_path,
-                        features=3000,n_trees=20,
+                        features=40,n_trees=20,
                         sample_count=10,sample_threshold=4,
                         buffer_size=1024,verbose=False,
                         metafile=self.meta_file)
                     
-                    test_index=AnnoyIndex(3000)
+                    test_index=AnnoyIndex(3000, metric="angular")
                     test_index.load(index_path+".annoy.mor")
                     
                     self.assertEqual(test_index.get_n_items(), 10)
@@ -1314,12 +1333,12 @@ if __name__ == '__main__':
                     
                     index_path = os.path.join(self.temp_dir_path ,"tempIndex")
                     go_index(intropolis=self.input_file, basename=index_path,
-                        features=3000,n_trees=20,
+                        features=40,n_trees=20,
                         sample_count=10,sample_threshold=6,
                         buffer_size=1024,verbose=False,
                         metafile=self.meta_file)
                     
-                    test_index=AnnoyIndex(3000)
+                    test_index=AnnoyIndex(3000, metric="angular")
                     test_index.load(index_path+".annoy.mor")
                     
                     self.assertEqual(test_index.get_n_items(), 7)
@@ -1450,6 +1469,10 @@ if __name__ == '__main__':
             else:
                 assert args.format == "raw"
                 junction_generator = junctions_from_raw_stream(junction_stream)
+            if args.rawlist:
+                for junction in (junction_generator):
+                    print junction
+                quit()
             if (args.convergence_backoff) and (args.format == 'sam'):
                 backoff = args.convergence_backoff
                 checkpoint = args.checkpoint
