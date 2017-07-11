@@ -108,10 +108,11 @@ def cosine_distance(v1,v2):
         pq += i * j
     ppqq= pp * qq
     if (ppqq > 0.0):
-        return 2.0 - 2.0 * pq / sqrt(ppqq)
+        distance = 2.0 - 2.0 * pq / sqrt(ppqq)
     else:
-        return 2.0
-
+        distance = 2.0
+    return sqrt(distance)
+    
 def results_output(results):
     """ output morna search results in human-readable fashion
     
