@@ -252,9 +252,9 @@ def junctions_from_bed_stream(bed_stream):
             yield (chrom, junctions[2*i]+1, junctions[2*i+1], coverage)
 
 def junctions_from_sam_stream(sam_stream):
-    """ Generates junctions from BED stream
+    """ Generates junctions from SAM stream
 
-        bed_stream: input stream containing lines of a BED file characterizing
+        sam_stream: input stream containing lines of a sam file characterizing
             splice junctions
 
         Yield value: tuple (chrom, start position, end position, 1)
@@ -281,6 +281,7 @@ def junctions_from_sam_stream(sam_stream):
                         cigar, dummy_md_index(cigar), pos, seq
                     )
             for junction in junctions_to_add:
+                print("junction: " + str(junction))
                 yield (rname,) + junction + (1,)
         except IndexError:
             print >>sys.stderr, ('Error found on line: ' + line)
