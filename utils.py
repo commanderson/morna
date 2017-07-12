@@ -277,7 +277,6 @@ def junctions_from_sam_stream(sam_stream):
             if 'N' not in cigar or flag & 256:
                 continue
             #md = [token[5:] for token in tokens if token[:5] == 'MD:Z:'][0]
-            #(insertions, deletions, junctions, exons, mismatches)
             print(str(indels_junctions_exons_mismatches(
                         cigar, dummy_md_index(cigar), pos, seq
                     )))
@@ -285,7 +284,10 @@ def junctions_from_sam_stream(sam_stream):
                         cigar, dummy_md_index(cigar), pos, seq
                     )
             for junction in junctions_to_add:
-                yield (rname,) + junction + (1,)
+                #strip displacements from junction before using them,
+                #and compensate for end position off-by-one
+                corrected_junction = (junction[0], junction[1] -1,)
+                yield (rname,) + corrected_junction + (1,)
         except IndexError:
             print >>sys.stderr, ('Error found on line: ' + line)
             raise
