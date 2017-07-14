@@ -38,6 +38,13 @@ parser.add_argument('-c', '--mincoverage', metavar='<int>', type=int,
         help='minimum coverage a junction must have in any sample; '
                  'junctions not meeting this are filtered from output'
         )
+parser.add_argument('-d','--disqualify', nargs='+', metavar='<ints>', type=int,
+            required=False,
+            default = [],
+            help=('list of rank positions which are disqualified;'
+                  'any junction present only in these rank positions is skipped'                    
+                  )
+        )
 parser.add_argument('--junction-filter', type=str, required=False,
         default=None,
         help='Two part junction filter settings separated by comma. Only retain' 
@@ -67,7 +74,14 @@ with open(args.input) as input_handle:
             if ((len(in_results) >= float(filter[0])) 
                     or (min(covs) >= int(filter[1]))):
                print "\t".join(tokens[:4])
-               continue 
+               continue
+        if args.disqualify is not None:
+            disqualified = True
+            for rank in in_results:
+                if rank not in args.disqualify:
+                    disqualified = False
+            if disqualified:
+                continue
         if args.minnum>-1:
             if len(in_results) < args.minnum:
                 continue
