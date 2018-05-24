@@ -1022,23 +1022,6 @@ if __name__ == '__main__':
     add_search_parameters(search_parser)
     add_search_parameters(junctions_parser)
 
-    junctions_parser.add_argument('-1', '--mates-1', metavar='<m1>',
-            type=str, nargs='+',
-            required=False,
-            help='files with #1 mates'
-        )
-    junctions_parser.add_argument('-2', '--mates-2', metavar='<m2>',
-            type=str, nargs='+',
-            required=False,
-            default=None,
-            help='files with #2 mates'
-        )
-    junctions_parser.add_argument('-U', '--unpaired', metavar='<r>',
-            type=str, nargs='+',
-            required=False,
-            default=None,
-            help='files with unpaired reads'
-        )
     junctions_parser.add_argument('-i', '--index', metavar='<idx>', type=str,
             required=True,
             help=('index basename or directory; use same assembly as was used '
