@@ -4,6 +4,15 @@ Morna is a collection of tools for indexing existing RNA-seq data, searching for
 Morna search can be used to test if a sample’s global expression patterns are similar to those of samples from the same tissue or cell type and may uncover significant contamination. 
 Morna can also aid alignment by improving detection of low-coverage splice junctions without the same sacrifices as employing a full gene annotation, and may be useful to impute junctions that might have been found had a sample been sequenced more deeply.
 
+## Dependencies
+Developed and tested using Python 2.7.12, specifically Python 2.7.12 [GCC 4.2.1 (Based on Apple Inc. build 5658) (LLVM build 2336.11.00)]
+
+Additional python modules needed:
+
+Uses AnnoyIndex from [annoy](https://github.com/spotify/annoy), best installed with sudo pip install annoy.
+
+Uses BitVector from [BitVector](https://engineering.purdue.edu/kak/dist/BitVector-3.4.8.html), again best installed with sudo pip install BitVector. 
+ 
 ## Components
 
 The three main tools morna offers are index, search, and junctions.
@@ -36,7 +45,7 @@ Creates each of the following index files for a data set of junctions:
 
 `--intropolis` (required)
 
-A file path to a gzipped file recording junctions across samples in "intropolis-like"  format
+A file path to a gzipped file recording junctions across samples in "intropolis-like"  format.
 
 `-x`, `--basename` (Not required, default is "morna")
 
@@ -204,26 +213,26 @@ python pool_junction_lists.py -i sorted_cjs.tsv.gz -s sra tcga gtex -m -n 25000 
 mkdir mastershards
 python morna.py index --intropolis pooled_combined_jns.tsv.gz -x mastershards/master_index --n-trees 10 -v -b 32768 -m sra_tcga_gtex_metadata.tsv 
 
-
-utilities:
-all python scripts run with Python 2.7.12
-[GCC 4.2.1 (Based on Apple Inc. build 5658) (LLVM build 2336.11.00)]
-
 ## Data Preparation
 
 Intropolis data was downloaded from figshare as part of "intropolis: exon-exon junctions across publicly available RNA-seq samples on the Sequence Read Archive"
 https://figshare.com/articles/intropolis_exon-exon_junctions_across_publicly_available_RNA-seq_samples_on_the_Sequence_Read_Archive/3811680/1
+
 Exon-exon junction data:
 intropolis.v1.hg19.tsv.gz
 https://ndownloader.figshare.com/files/5935809
+
 Junction to SRA mapping data:
 intropolis.idmap.v1.hg19.tsv
 https://ndownloader.figshare.com/files/5935797
 
 
 
-Created filtered files using: 
+Created filtered files using these commands:
+
+(To restrict to only junctions present in at least 100 samples:)
+
 gzip -cd intropolis.v1.hg19.tsv.gz | awk -F',' 'NF >= 199'>intropolis_junctions_100samples.tsv
--To restrict to only junctions present in at least 100 samples
+
+(To restrict to only junctions present in at least 1000 samples:)
 gzip -cd intropolis.v1.hg19.tsv.gz | awk -F',' 'NF >= 1999'>intropolis_junctions_1000samples.tsv
--To restrict to only junctions present in at least 1000 samples.
